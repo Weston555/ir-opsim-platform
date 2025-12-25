@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: iropsim-backend
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/iropsim}
+    username: ${SPRING_DATASOURCE_USERNAME:iropsim}
+    password: ${SPRING_DATASOURCE_PASSWORD:iropsim123}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: ${SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL:true}
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  websocket:
+    endpoint: ${WEBSOCKET_ENDPOINT:/ws}
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/}
+
+logging:
+  level:
+    com.example.iropsim: ${LOGGING_LEVEL_COM_EXAMPLE_IROPSIM:INFO}
+    org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+
+jwt:
+  secret: ${JWT_SECRET:your-super-secret-jwt-key-change-this-in-production-32-chars-min}
+  expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
+
+simulation:
+  default-rate-hz: ${SIMULATION_DEFAULT_RATE_HZ:1}
+  default-robot-count: ${SIMULATION_DEFAULT_ROBOT_COUNT:1}
+  default-joint-count: ${SIMULATION_DEFAULT_JOINT_COUNT:6}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+logging:
+  level:
+    com.example.iropsim: DEBUG
+    org.springframework.security: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+logging:
+  level:
+    com.example.iropsim: INFO
+    org.springframework.security: INFO

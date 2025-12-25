@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: iropsim-postgres
+    environment:
+      POSTGRES_DB: iropsim
+      POSTGRES_USER: iropsim
+      POSTGRES_PASSWORD: iropsim123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iropsim -d iropsim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iropsim-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iropsim-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iropsim
+      SPRING_DATASOURCE_USERNAME: iropsim
+      SPRING_DATASOURCE_PASSWORD: iropsim123
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production-32-chars-minimum-security
+      JWT_EXPIRATION: 86400000
+      SERVER_PORT: 8080
+      WEBSOCKET_ENDPOINT: /ws
+      LOGGING_LEVEL_COM_EXAMPLE_IROPSIM: INFO
+      SIMULATION_DEFAULT_RATE_HZ: 1
+      SIMULATION_DEFAULT_ROBOT_COUNT: 1
+      SIMULATION_DEFAULT_JOINT_COUNT: 6
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - iropsim-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iropsim-frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+      VITE_WS_BASE_URL: ws://localhost:8080
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - iropsim-network
+    restart: unless-stopped
+
+  # 可选：pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: iropsim-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@iropsim.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - iropsim-network
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+
+networks:
+  iropsim-network:
+    driver: bridge
