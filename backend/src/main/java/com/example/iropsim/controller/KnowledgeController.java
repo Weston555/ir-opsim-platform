@@ -57,7 +57,7 @@ public class KnowledgeController {
             @RequestParam(required = false) String tag) {
 
         Pageable pageable = PageRequest.of(page, size);
-        Page<KbCase> cases = kbCaseRepository.search(keyword, faultType, tag, pageable);
+        Page<KbCase> cases = kbCaseRepository.search(keyword, faultType, pageable);
 
         return ResponseEntity.ok(ApiResponse.success(cases));
     }

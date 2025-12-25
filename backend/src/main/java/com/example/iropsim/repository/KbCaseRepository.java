@@ -17,12 +17,10 @@ public interface KbCaseRepository extends JpaRepository<KbCase, UUID> {
     @Query("SELECT kc FROM KbCase kc WHERE " +
            "(:keyword IS NULL OR LOWER(kc.title) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
            "LOWER(kc.rootCause) LIKE LOWER(CONCAT('%', :keyword, '%'))) AND " +
-           "(:faultType IS NULL OR kc.faultType = :faultType) AND " +
-           "(:tag IS NULL OR :tag = ANY(kc.tags))")
+           "(:faultType IS NULL OR kc.faultType = :faultType)")
     Page<KbCase> search(
             @Param("keyword") String keyword,
             @Param("faultType") String faultType,
-            @Param("tag") String tag,
             Pageable pageable);
 
     List<KbCase> findByFaultType(String faultType);
