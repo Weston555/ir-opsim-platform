@@ -39,9 +39,13 @@ public class AuditLogService {
                 actor = userRepository.findById(UUID.fromString(userDetails.getId())).orElse(null);
             }
 
-            JsonNode detailJson = null;
+            com.fasterxml.jackson.databind.JsonNode detailJson = null;
             if (detail != null) {
-                detailJson = objectMapper.valueToTree(detail);
+                try {
+                    detailJson = objectMapper.valueToTree(detail);
+                } catch (Exception e) {
+                    log.warn("Failed to serialize audit detail: {}", e.getMessage());
+                }
             }
 
             AuditLog auditLog = AuditLog.builder()

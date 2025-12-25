@@ -13,6 +13,7 @@ import com.example.iropsim.sim.SimulationEngine;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +37,7 @@ public class SimulationController {
     private final ScenarioRunRepository scenarioRunRepository;
     private final FaultInjectionRepository faultInjectionRepository;
     private final SimulationEngine simulationEngine;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/runs")
     @PreAuthorize("hasRole('ADMIN') or hasRole('OPERATOR')")

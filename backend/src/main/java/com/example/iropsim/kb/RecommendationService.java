@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.UUID;
 
 /**
  * 建议服务
@@ -46,7 +47,7 @@ public class RecommendationService {
         }
 
         // 2. 查找匹配的案例（基于告警类型）
-        List<KbCase> relevantCases = kbCaseRepository.findByFaultType(alarmEvent.getAlarmType().toString());
+        List<KbCase> relevantCases = kbCaseRepository.findByFaultType(alarmEvent.getAlarmType().name());
         for (KbCase kbCase : relevantCases) {
             // 简单的匹配逻辑：基于告警类型
             matchedCases.add(new MatchedCase(kbCase, "Case matches alarm type"));

@@ -149,7 +149,7 @@ public class KnowledgeController {
                 .orElseThrow(() -> new IllegalArgumentException("Rule not found: " + id));
 
         existingRule.setName(updatedRule.getName());
-        existingRule.setEnabled(updatedRule.isEnabled());
+        existingRule.setEnabled(updatedRule.getEnabled());
         existingRule.setPriority(updatedRule.getPriority());
         existingRule.setWhenExpr(updatedRule.getWhenExpr());
         existingRule.setThenCase(updatedRule.getThenCase());

@@ -1,6 +1,8 @@
 package com.example.iropsim.sim;
 
 import com.example.iropsim.entity.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,7 @@ import java.util.UUID;
 public class DataGenerator {
 
     private final Random random = new Random();
+    private final ObjectMapper objectMapper;
 
     /**
      * 生成关节采样数据
@@ -30,11 +33,11 @@ public class DataGenerator {
         double baseTemp = 40.0;   // 额定温度
         double baseVibration = 0.1; // 额定振动
 
-        if (scenarioRun.getScenario().getBaseParams() != null) {
-            var params = scenarioRun.getScenario().getBaseParams();
-            baseCurrent = params.get("current_nominal").asDouble(baseCurrent);
-            baseTemp = params.get("temp_nominal").asDouble(baseTemp);
-            baseVibration = params.get("vibration_nominal").asDouble(baseVibration);
+        JsonNode params = scenarioRun.getScenario().getBaseParams();
+        if (params != null && !params.isNull()) {
+            baseCurrent = params.has("current_nominal") ? params.get("current_nominal").asDouble(baseCurrent) : baseCurrent;
+            baseTemp = params.has("temp_nominal") ? params.get("temp_nominal").asDouble(baseTemp) : baseTemp;
+            baseVibration = params.has("vibration_nominal") ? params.get("vibration_nominal").asDouble(baseVibration) : baseVibration;
         }
 
         // 生成基础数据（添加随机噪声）
@@ -47,29 +50,29 @@ public class DataGenerator {
         for (FaultInjection fault : activeFaults) {
             if (isFaultActive(fault, timestamp)) {
                 // 应用故障效果
-                var faultParams = fault.getParams();
-                if (faultParams != null) {
+                JsonNode faultParams = fault.getParams();
+                if (faultParams != null && !faultParams.isNull()) {
                     switch (fault.getFaultType()) {
-                        case OVERHEAT:
-                            temperature += faultParams.get("amplitude").asDouble(10.0);
-                            label = JointSample.SampleLabel.FAULT_OVERHEAT;
-                            break;
-                        case HIGH_VIBRATION:
-                            vibration += faultParams.get("amplitude").asDouble(0.5);
-                            label = JointSample.SampleLabel.FAULT_HIGH_VIBRATION;
-                            break;
-                        case CURRENT_SPIKE:
-                            current += faultParams.get("amplitude").asDouble(2.0);
-                            label = JointSample.SampleLabel.FAULT_CURRENT_SPIKE;
-                            break;
-                        case SENSOR_DRIFT:
-                            // 传感器漂移：逐渐增加偏移
-                            double driftRate = faultParams.get("drift_rate").asDouble(0.01);
-                            long elapsedSeconds = timestamp.getEpochSecond() - fault.getStartTs().getEpochSecond();
-                            temperature += elapsedSeconds * driftRate;
-                            label = JointSample.SampleLabel.FAULT_SENSOR_DRIFT;
-                            break;
-                    }
+                            case OVERHEAT:
+                                temperature += faultParams.has("amplitude") ? faultParams.get("amplitude").asDouble(10.0) : 10.0;
+                                label = JointSample.SampleLabel.FAULT_OVERHEAT;
+                                break;
+                            case HIGH_VIBRATION:
+                                vibration += faultParams.has("amplitude") ? faultParams.get("amplitude").asDouble(0.5) : 0.5;
+                                label = JointSample.SampleLabel.FAULT_HIGH_VIBRATION;
+                                break;
+                            case CURRENT_SPIKE:
+                                current += faultParams.has("amplitude") ? faultParams.get("amplitude").asDouble(2.0) : 2.0;
+                                label = JointSample.SampleLabel.FAULT_CURRENT_SPIKE;
+                                break;
+                            case SENSOR_DRIFT:
+                                // 传感器漂移：逐渐增加偏移
+                                double driftRate = faultParams.has("drift_rate") ? faultParams.get("drift_rate").asDouble(0.01) : 0.01;
+                                long elapsedSeconds = timestamp.getEpochSecond() - fault.getStartTs().getEpochSecond();
+                                temperature += elapsedSeconds * driftRate;
+                                label = JointSample.SampleLabel.FAULT_SENSOR_DRIFT;
+                                break;
+                        }
                 }
             }
         }
@@ -106,9 +109,9 @@ public class DataGenerator {
         for (FaultInjection fault : activeFaults) {
             if (isFaultActive(fault, timestamp) && fault.getFaultType() == FaultInjection.FaultType.SENSOR_DRIFT) {
                 // 位姿传感器漂移
-                var faultParams = fault.getParams();
-                if (faultParams != null) {
-                    double driftRate = faultParams.get("drift_rate").asDouble(0.001);
+                JsonNode faultParams = fault.getParams();
+                if (faultParams != null && !faultParams.isNull()) {
+                    double driftRate = faultParams.has("drift_rate") ? faultParams.get("drift_rate").asDouble(0.001) : 0.001;
                     long elapsedSeconds = timestamp.getEpochSecond() - fault.getStartTs().getEpochSecond();
                     x += elapsedSeconds * driftRate;
                     y += elapsedSeconds * driftRate;

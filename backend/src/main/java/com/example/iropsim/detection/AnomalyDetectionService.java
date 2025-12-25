@@ -5,6 +5,8 @@ import com.example.iropsim.entity.*;
 import com.example.iropsim.repository.AlarmEventRepository;
 import com.example.iropsim.repository.RobotRepository;
 import com.example.iropsim.websocket.WebSocketEventHandler;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ public class AnomalyDetectionService {
     private final RobotRepository robotRepository;
     private final WebSocketEventHandler webSocketEventHandler;
     private final AlarmService alarmService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 处理新的传感器样本并执行异常检测
@@ -136,7 +139,7 @@ public class AnomalyDetectionService {
                     .count(1)
                     .detector(detectorType)
                     .score(detectionResult.getScore())
-                    .evidence(detectionResult.getEvidence())
+                    .evidence(objectMapper.valueToTree(detectionResult.getEvidence()))
                     .scenarioRun(jointSample.getScenarioRun())
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
@@ -178,6 +181,15 @@ public class AnomalyDetectionService {
             case "VIBRATION": return "VIB_ANOMALY";
             case "TEMPERATURE": return "TEMP_ANOMALY";
             default: return "UNKNOWN_ANOMALY";
+        }
+    }
+
+    private String convertEvidenceToString(Object evidence) {
+        try {
+            return objectMapper.writeValueAsString(evidence);
+        } catch (Exception e) {
+            log.warn("Failed to convert evidence to JSON string: {}", e.getMessage());
+            return "{}";
         }
     }
 }

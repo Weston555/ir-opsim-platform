@@ -203,7 +203,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Loading } from '@element-plus/icons-vue'
+// icons are registered globally in main.ts; no local imports needed
 import { useAlarmStore } from '@/stores/alarm'
 import { useRobotStore } from '@/stores/robot'
 import type { AlarmEvent } from '@/types/alarm'

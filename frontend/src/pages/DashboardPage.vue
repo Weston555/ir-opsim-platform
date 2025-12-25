@@ -167,14 +167,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Robot,
-  Warning,
-  Bell,
-  Error,
-  Refresh,
-  Loading
-} from '@element-plus/icons-vue'
+// icons are registered globally in main.ts; no local imports needed
 import { useAuthStore } from '@/stores/auth'
 import { useAlarmStore } from '@/stores/alarm'
 import api from '@/api/auth'

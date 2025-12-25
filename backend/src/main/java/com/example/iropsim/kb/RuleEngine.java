@@ -27,7 +27,7 @@ public class RuleEngine {
     public boolean evaluateRule(KbRule rule, AlarmEvent alarmEvent) {
         try {
             JsonNode whenExpr = rule.getWhenExpr();
-            if (whenExpr == null || whenExpr.isEmpty()) {
+            if (whenExpr == null || whenExpr.isNull()) {
                 return false;
             }
 

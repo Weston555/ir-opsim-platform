@@ -97,7 +97,7 @@ class SlidingWindowBufferTest {
         buffer.addSample(robotId, jointIndex, 4.0, now);
         buffer.addSample(robotId, jointIndex, 5.0, now);
 
-        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats(robotId, jointIndex, now);
+        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats(robotId, jointIndex);
 
         assertEquals(5, stats.count);
         assertEquals(3.0, stats.mean); // (1+2+3+4+5)/5 = 3
@@ -107,7 +107,7 @@ class SlidingWindowBufferTest {
 
     @Test
     void testBufferStatistics_Empty() {
-        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats("nonexistent", 0, Instant.now());
+        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats("nonexistent", 0);
 
         assertEquals(0, stats.count);
         assertEquals(0.0, stats.mean);
@@ -124,7 +124,7 @@ class SlidingWindowBufferTest {
 
         buffer.addSample(robotId, jointIndex, 2.5, now);
 
-        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats(robotId, jointIndex, now);
+        SlidingWindowBuffer.BufferStats stats = buffer.getBufferStats(robotId, jointIndex);
 
         assertEquals(1, stats.count);
         assertEquals(2.5, stats.mean);

@@ -207,7 +207,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Loading } from '@element-plus/icons-vue'
+// icons are registered globally in main.ts; no local imports needed
 import { useAlarmStore } from '@/stores/alarm'
 import type { AlarmEvent, AlarmRecommendation } from '@/types/alarm'
 

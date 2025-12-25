@@ -1,6 +1,8 @@
 package com.example.iropsim.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.Convert;
+import com.example.iropsim.config.JsonNodeConverter;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,6 +38,7 @@ public class FaultInjection {
     @Column(name = "end_ts", nullable = false)
     private Instant endTs;
 
+    @Convert(converter = JsonNodeConverter.class)
     @Column(columnDefinition = "jsonb")
     private JsonNode params;
 

@@ -116,13 +116,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import {
-  ArrowLeft,
-  Lightning,
-  Warning,
-  HotWater,
-  Loading
-} from '@element-plus/icons-vue'
+// icons are registered globally in main.ts; no local imports needed
 import * as echarts from 'echarts'
 import { useRobotStore } from '@/stores/robot'
 import type { TelemetryData } from '@/types/robot'

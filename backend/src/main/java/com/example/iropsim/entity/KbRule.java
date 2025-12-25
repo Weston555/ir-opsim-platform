@@ -1,6 +1,8 @@
 package com.example.iropsim.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.Convert;
+import com.example.iropsim.config.JsonNodeConverter;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,6 +35,7 @@ public class KbRule {
     @Builder.Default
     private Integer priority = 0;
 
+    @Convert(converter = JsonNodeConverter.class)
     @Column(name = "when_expr", columnDefinition = "jsonb", nullable = false)
     private JsonNode whenExpr;
 

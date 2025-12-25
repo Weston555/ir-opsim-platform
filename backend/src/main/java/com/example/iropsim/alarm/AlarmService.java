@@ -7,6 +7,7 @@ import com.example.iropsim.repository.AlarmAckRepository;
 import com.example.iropsim.repository.AlarmEventRepository;
 import com.example.iropsim.repository.UserRepository;
 import com.example.iropsim.websocket.WebSocketEventHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -31,6 +32,7 @@ public class AlarmService {
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final WebSocketEventHandler webSocketEventHandler;
+    private final ObjectMapper objectMapper;
 
     /**
      * 确认告警
@@ -126,14 +128,18 @@ public class AlarmService {
     public void updateAlarmSuppression(AlarmEvent alarmEvent, boolean suppressed) {
         // 这里可以扩展alarm_event表，添加suppressed字段
         // 目前先通过evidence字段记录抑制状态
-        var evidence = alarmEvent.getEvidence();
-        if (evidence instanceof java.util.Map) {
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, Object> evidenceMap = (java.util.Map<String, Object>) evidence;
+        try {
+            com.fasterxml.jackson.databind.JsonNode evidenceNode = alarmEvent.getEvidence();
+            java.util.Map<String, Object> evidenceMap = new java.util.HashMap<>();
+            if (evidenceNode != null && !evidenceNode.isNull()) {
+                evidenceMap = objectMapper.convertValue(evidenceNode, java.util.Map.class);
+            }
             evidenceMap.put("suppressed", suppressed);
             evidenceMap.put("suppressedAt", Instant.now().toString());
-            alarmEvent.setEvidence(evidenceMap);
+            alarmEvent.setEvidence(objectMapper.valueToTree(evidenceMap));
             alarmEventRepository.save(alarmEvent);
+        } catch (Exception e) {
+            log.warn("Failed to update alarm suppression evidence: {}", e.getMessage());
         }
     }
 }

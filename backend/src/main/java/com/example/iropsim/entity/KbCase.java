@@ -1,6 +1,8 @@
 package com.example.iropsim.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.Convert;
+import com.example.iropsim.config.JsonNodeConverter;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,12 +31,15 @@ public class KbCase {
     @Column(name = "fault_type", nullable = false)
     private String faultType;
 
-    @Column(columnDefinition = "jsonb")
-    private JsonNode symptoms;
 
     @Column(name = "root_cause", nullable = false, columnDefinition = "TEXT")
     private String rootCause;
 
+    @Convert(converter = JsonNodeConverter.class)
+    @Column(columnDefinition = "jsonb")
+    private JsonNode symptoms;
+
+    @Convert(converter = JsonNodeConverter.class)
     @Column(columnDefinition = "jsonb", nullable = false)
     private JsonNode actions;
 

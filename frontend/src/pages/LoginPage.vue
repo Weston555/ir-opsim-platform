@@ -60,7 +60,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+// icons are registered globally in main.ts; no local imports needed
 import type { FormInstance } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
