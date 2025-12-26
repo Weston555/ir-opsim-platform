@@ -135,7 +135,12 @@ export const robotApi = {
       console.error('Create robot failed, attempting local mock fallback:', error)
       // If server error, persist mock robot locally so UI can continue
       const status = error?.response?.status || 0
-      if (status >= 500) {
+      const isDemoMode = localStorage.getItem('demoMode') === '1' ||
+                        import.meta.env.VITE_DEMO_MODE === 'true'
+
+      // 在演示模式下，对401/403/500等错误都fallback到localStorage
+      if (isDemoMode && (status === 0 || status === 401 || status === 403 || status >= 500) ||
+          (!isDemoMode && status >= 500)) {
         const mockId = `mock-${Date.now()}`
         const mockRobot: Robot = {
           id: mockId,

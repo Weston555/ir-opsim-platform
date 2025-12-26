@@ -209,6 +209,8 @@ import { Setting } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAlarmStore } from '@/stores/alarm'
 import { simApi } from '@/api/sim'
+import { robotApi } from '@/api/robot'
+import type { Robot } from '@/types/robot'
 import api from '@/api/auth'
 
 const router = useRouter()
@@ -216,7 +218,7 @@ const authStore = useAuthStore()
 const alarmStore = useAlarmStore()
 
 // 状态
-const robots = ref<any[]>([])
+const robots = ref<Robot[]>([])
 const robotsLoading = ref(false)
 const injectingFaults = ref<Record<string, boolean>>({})
 
@@ -233,11 +235,13 @@ onMounted(async () => {
 const loadRobots = async () => {
   robotsLoading.value = true
   try {
-    const response = await api.get('/api/v1/robots')
-    robots.value = response.data.data
-  } catch (error) {
+    robots.value = await robotApi.getRobots()
+  } catch (error: any) {
     console.error('Failed to load robots:', error)
-    ElMessage.error('加载机器人列表失败')
+    // 如果是后端错误，robotApi内部已做localStorage fallback，这里只显示用户友好的错误
+    if (error?.response?.status !== 401 && error?.response?.status < 500) {
+      ElMessage.error('加载机器人列表失败')
+    }
   } finally {
     robotsLoading.value = false
   }

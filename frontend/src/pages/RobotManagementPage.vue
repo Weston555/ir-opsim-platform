@@ -263,25 +263,32 @@ const router = useRouter()
 const loadRobots = async () => {
   loading.value = true
   try {
-    // 调用后端分页API，获取机器人列表
-    const response = await robotApi.getRobots({
-      page: pagination.currentPage - 1,  // Spring Boot分页从0开始
-      size: pagination.pageSize,
-      model: searchModel.value || undefined  // 搜索关键词
+    // 获取完整机器人列表（robotApi.getRobots已做分页参数传递和归一化处理）
+    const allRobots = await robotApi.getRobots({
+      page: 0,  // 获取所有数据，由前端分页
+      size: 1000, // 设置大值获取所有数据
+      model: searchModel.value || undefined
     })
 
-    // 更新表格数据和分页信息
-    robots.value = response.data.content
-    pagination.total = response.data.totalElements
+    // 前端分页处理
+    const startIndex = (pagination.currentPage - 1) * pagination.pageSize
+    const endIndex = startIndex + pagination.pageSize
+
+    // 更新分页信息
+    pagination.total = allRobots.length
+    robots.value = allRobots.slice(startIndex, endIndex)
 
     // 成功加载后给出视觉反馈（可选）
     if (robots.value.length === 0 && searchModel.value) {
       ElMessage.info('未找到匹配的机器人')
     }
-  } catch (error) {
+  } catch (error: any) {
     // 错误处理 - 网络错误或服务异常
-    ElMessage.error('加载机器人列表失败，请检查网络连接')
     console.error('Failed to load robots:', error)
+    // 如果是后端错误，robotApi内部已做localStorage fallback，这里只显示用户友好的错误
+    if (error?.response?.status !== 401 && error?.response?.status < 500) {
+      ElMessage.error('加载机器人列表失败，请检查网络连接')
+    }
   } finally {
     // 无论成功还是失败，都要重置加载状态
     loading.value = false
