@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -42,6 +43,7 @@ import java.util.Random;
  */
 @Slf4j
 @Component
+@Primary
 @RequiredArgsConstructor
 public class SimulationCollector implements DataCollectorService {
 
@@ -54,11 +56,6 @@ public class SimulationCollector implements DataCollectorService {
     private static final double VIBRATION_BASE = 0.08; // 基础振动水平 (RMS)
     private static final double TEMP_SEASONAL_AMPLITUDE = 3.0; // 温度季节性变化 (°C)
 
-    /**
-     * 随机数生成器 - 用于添加真实性噪声
-     * 通过种子设置保证实验可复现
-     */
-    private final Random random = new Random();
 
     @Override
     public JointSample collectJointSample(Robot robot, int jointIndex, ScenarioRun scenarioRun,

@@ -466,6 +466,12 @@ public class SimulationEngine {
 
                 log.debug("Generated simulation data for run: {} at time: {}", runId, now);
 
+                } catch (Exception e) {
+                    log.error("Failed to collect pose sample: {}", e.getMessage());
+                    // 如果位姿数据采集失败，记录错误但继续运行
+                    // 这里可以选择不推送数据或者推送部分数据
+                }
+
             } catch (Exception e) {
                 log.error("Error in simulation task for run: {}", runId, e);
                 // 发生错误时停止仿真
