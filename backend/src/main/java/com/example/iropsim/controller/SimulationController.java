@@ -11,6 +11,7 @@ import com.example.iropsim.sim.FaultInjectionRequest;
 import com.example.iropsim.sim.ScenarioRunRequest;
 import com.example.iropsim.sim.SimulationEngine;
 import com.example.iropsim.sim.EvaluationReport;
+import com.example.iropsim.sim.DataCollectorService;
 import com.example.iropsim.entity.FaultTemplate;
 import com.example.iropsim.repository.FaultTemplateRepository;
 import org.springframework.data.domain.PageRequest;
@@ -208,5 +209,136 @@ public class SimulationController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(jsonData);
+    }
+
+    // ==================== 数据源管理接口 ====================
+
+    /**
+     * 获取当前数据源状态
+     */
+    @GetMapping("/datasource/status")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('OPERATOR') or hasRole('VIEWER')")
+    @Operation(summary = "获取数据源状态", description = "获取当前数据采集源的状态信息")
+    public ResponseEntity<ApiResponse<DataSourceStatus>> getDataSourceStatus() {
+        DataSourceStatus status = new DataSourceStatus();
+        status.setCurrentSource(simulationEngine.getCurrentDataSource());
+        status.setAvailable(simulationEngine.isDataSourceAvailable());
+        status.setActiveSimulations(simulationEngine.getActiveSimulationCount());
+
+        return ResponseEntity.ok(ApiResponse.success(status));
+    }
+
+    /**
+     * 切换数据源模式
+     */
+    @PostMapping("/datasource/switch")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "切换数据源模式", description = "在模拟模式和实时采集模式之间切换")
+    public ResponseEntity<ApiResponse<String>> switchDataSource(@RequestBody DataSourceSwitchRequest request) {
+        try {
+            DataCollectorService targetCollector;
+
+            switch (request.getTargetSource()) {
+                case SIMULATION:
+                    targetCollector = simulationCollector;
+                    break;
+                case REAL_DEVICE:
+                    targetCollector = remoteDeviceCollector;
+                    break;
+                default:
+                    return ResponseEntity.badRequest()
+                            .body(ApiResponse.error("不支持的数据源类型: " + request.getTargetSource()));
+            }
+
+            simulationEngine.setDataCollector(targetCollector);
+
+            log.info("Data source switched to: {}", request.getTargetSource());
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "数据源已切换到: " + request.getTargetSource()));
+
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("无法切换数据源: " + e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to switch data source", e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("数据源切换失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 获取支持的数据源类型
+     */
+    @GetMapping("/datasource/types")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('OPERATOR') or hasRole('VIEWER')")
+    @Operation(summary = "获取支持的数据源类型", description = "获取系统中支持的所有数据源类型")
+    public ResponseEntity<ApiResponse<DataSourceInfo[]>> getSupportedDataSources() {
+        DataSourceInfo[] sources = {
+                new DataSourceInfo(DataCollectorService.DataSourceType.SIMULATION,
+                        "模拟数据源",
+                        "使用数学模型生成逼真的机器人传感器数据，支持正弦波运动模拟和故障注入",
+                        true),
+                new DataSourceInfo(DataCollectorService.DataSourceType.REAL_DEVICE,
+                        "实时设备数据源",
+                        "从物理工业机器人设备实时采集传感器数据，支持HTTP/MQTT通信协议",
+                        remoteDeviceCollector.isAvailable())
+        };
+
+        return ResponseEntity.ok(ApiResponse.success(sources));
+    }
+
+    // ==================== 内部DTO类 ====================
+
+    /**
+     * 数据源状态信息
+     */
+    public static class DataSourceStatus {
+        private DataCollectorService.DataSourceType currentSource;
+        private boolean available;
+        private int activeSimulations;
+
+        // getters and setters
+        public DataCollectorService.DataSourceType getCurrentSource() { return currentSource; }
+        public void setCurrentSource(DataCollectorService.DataSourceType currentSource) { this.currentSource = currentSource; }
+
+        public boolean isAvailable() { return available; }
+        public void setAvailable(boolean available) { this.available = available; }
+
+        public int getActiveSimulations() { return activeSimulations; }
+        public void setActiveSimulations(int activeSimulations) { this.activeSimulations = activeSimulations; }
+    }
+
+    /**
+     * 数据源切换请求
+     */
+    public static class DataSourceSwitchRequest {
+        private DataCollectorService.DataSourceType targetSource;
+
+        public DataCollectorService.DataSourceType getTargetSource() { return targetSource; }
+        public void setTargetSource(DataCollectorService.DataSourceType targetSource) { this.targetSource = targetSource; }
+    }
+
+    /**
+     * 数据源信息
+     */
+    public static class DataSourceInfo {
+        private DataCollectorService.DataSourceType type;
+        private String name;
+        private String description;
+        private boolean available;
+
+        public DataSourceInfo(DataCollectorService.DataSourceType type, String name, String description, boolean available) {
+            this.type = type;
+            this.name = name;
+            this.description = description;
+            this.available = available;
+        }
+
+        // getters
+        public DataCollectorService.DataSourceType getType() { return type; }
+        public String getName() { return name; }
+        public String getDescription() { return description; }
+        public boolean isAvailable() { return available; }
     }
 }

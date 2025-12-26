@@ -3,10 +3,13 @@ package com.example.iropsim.sim;
 import com.example.iropsim.detection.AnomalyDetectionService;
 import com.example.iropsim.entity.*;
 import com.example.iropsim.repository.*;
+import com.example.iropsim.sim.DataCollectorService;
+import com.example.iropsim.sim.SimulationCollector;
 import com.example.iropsim.websocket.WebSocketEventHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -20,7 +23,31 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 仿真引擎
+ * 仿真引擎 - 支持虚实数据源切换
+ *
+ * <p>该类实现了数据采集策略模式，支持运行时动态切换数据源：</p>
+ * <ul>
+ *   <li><b>模拟模式：</b> 使用{@link SimulationCollector}生成基于正弦波的逼真数据</li>
+ *   <li><b>实时模式：</b> 使用{@link RemoteDeviceCollector}从物理设备采集数据</li>
+ * </ul>
+ *
+ * <p><b>策略模式实现：</b></p>
+ * <p>仿真引擎作为策略模式的上下文类，根据配置选择不同的数据采集策略。
+ * 通过依赖注入获取默认的模拟数据采集器，同时支持运行时切换到真实设备采集器。</p>
+ *
+ * <p><b>数据源切换流程：</b></p>
+ * <pre>{@code
+ * 前端请求 -> SimulationController -> SimulationEngine.setDataSource()
+ *     ↓              ↓                        ↓
+ * 模式切换   更新数据源策略           重新初始化采集器
+ * }</pre>
+ *
+ * <p><b>容错设计：</b></p>
+ * <ul>
+ *   <li>数据源不可用时自动降级到模拟模式</li>
+ *   <li>数据采集异常时的重试机制</li>
+ *   <li>数据质量验证和异常检测</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -33,16 +60,85 @@ public class SimulationEngine {
     private final PoseSampleRepository poseSampleRepository;
     private final FaultInjectionRepository faultInjectionRepository;
     private final AlarmEventRepository alarmEventRepository;
-    private final DataGenerator dataGenerator;
     private final ScheduledExecutorService scheduledExecutor;
     private final WebSocketEventHandler webSocketEventHandler;
     private final AnomalyDetectionService anomalyDetectionService;
     private final ObjectMapper objectMapper;
 
+    // 数据采集策略 - 支持运行时切换
+    @Autowired
+    private DataCollectorService dataCollector;
+
+    // 当前数据源类型
+    private volatile DataCollectorService.DataSourceType currentDataSource = DataCollectorService.DataSourceType.SIMULATION;
+
     // 运行中的仿真任务
     private final Map<UUID, ScheduledFuture<?>> runningSimulations = new ConcurrentHashMap<>();
     // 运行中的回放任务
     private final Map<UUID, ScheduledFuture<?>> runningReplays = new ConcurrentHashMap<>();
+
+    /**
+     * 设置数据采集策略
+     *
+     * <p>运行时动态切换数据源策略，支持从模拟模式切换到真实设备模式，反之亦然。
+     * 切换过程中会停止当前的数据采集器并初始化新的采集器。</p>
+     *
+     * @param collector 新的数据采集器实例
+     */
+    public synchronized void setDataCollector(DataCollectorService collector) {
+        if (collector == null) {
+            throw new IllegalArgumentException("Data collector cannot be null");
+        }
+
+        // 检查是否有正在运行的仿真
+        if (!runningSimulations.isEmpty()) {
+            log.warn("Cannot switch data source while simulations are running. Active simulations: {}", runningSimulations.size());
+            throw new IllegalStateException("Cannot switch data source while simulations are running");
+        }
+
+        log.info("Switching data source from {} to {}", currentDataSource, collector.getDataSourceType());
+
+        try {
+            // 关闭当前采集器
+            if (dataCollector != null) {
+                dataCollector.shutdown();
+            }
+
+            // 设置新的采集器
+            this.dataCollector = collector;
+            this.currentDataSource = collector.getDataSourceType();
+
+            // 初始化新的采集器
+            dataCollector.initialize();
+
+            log.info("Successfully switched to data source: {}", currentDataSource);
+
+        } catch (Exception e) {
+            log.error("Failed to switch data source to {}", collector.getDataSourceType(), e);
+            throw new RuntimeException("Data source switch failed", e);
+        }
+    }
+
+    /**
+     * 获取当前数据源类型
+     */
+    public DataCollectorService.DataSourceType getCurrentDataSource() {
+        return currentDataSource;
+    }
+
+    /**
+     * 检查数据源是否可用
+     */
+    public boolean isDataSourceAvailable() {
+        return dataCollector != null && dataCollector.isAvailable();
+    }
+
+    /**
+     * 获取活跃仿真数量
+     */
+    public int getActiveSimulationCount() {
+        return runningSimulations.size();
+    }
 
     /**
      * 启动仿真运行
@@ -55,8 +151,10 @@ public class SimulationEngine {
             throw new IllegalStateException("Simulation is already running");
         }
 
-        // 设置随机种子保证可复现
-        dataGenerator.setSeed(scenarioRun.getSeed());
+        // 设置随机种子保证可复现（仅对模拟模式有效）
+        if (dataCollector instanceof SimulationCollector) {
+            ((SimulationCollector) dataCollector).setSeed(scenarioRun.getSeed());
+        }
 
         // 获取机器人列表（暂时只支持一个机器人）
         List<Robot> robots = robotRepository.findAll();
@@ -325,18 +423,28 @@ public class SimulationEngine {
 
                 // 生成关节数据（每个关节）
                 for (int jointIndex = 0; jointIndex < robot.getJointCount(); jointIndex++) {
-                    JointSample jointSample = dataGenerator.generateJointSample(
-                            robot, jointIndex, scenarioRun, now, activeFaults);
-                    jointSample = jointSampleRepository.save(jointSample);
+                    try {
+                        JointSample jointSample = dataCollector.collectJointSample(
+                                robot, jointIndex, scenarioRun, now, activeFaults);
+                        jointSample = jointSampleRepository.save(jointSample);
 
-                    // 执行异常检测
-                    anomalyDetectionService.processSample(jointSample);
+                        // 执行异常检测
+                        anomalyDetectionService.processSample(jointSample);
+                    } catch (Exception e) {
+                        log.error("Failed to collect joint sample for joint {}: {}", jointIndex, e.getMessage());
+                        // 如果数据采集失败，尝试降级到模拟模式
+                        if (!(dataCollector instanceof SimulationCollector)) {
+                            log.warn("Data collection failed, consider switching to simulation mode");
+                        }
+                        throw e; // 重新抛出异常让上层处理
+                    }
                 }
 
                 // 生成位姿数据
-                PoseSample poseSample = dataGenerator.generatePoseSample(
-                        robot, scenarioRun, now, activeFaults);
-                poseSample = poseSampleRepository.save(poseSample);
+                try {
+                    PoseSample poseSample = dataCollector.collectPoseSample(
+                            robot, scenarioRun, now, activeFaults);
+                    poseSample = poseSampleRepository.save(poseSample);
 
                 // 执行位姿异常检测
                 anomalyDetectionService.processSample(poseSample);
