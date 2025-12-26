@@ -25,6 +25,13 @@ api.interceptors.request.use(
   }
 )
 
+export interface Scenario {
+  id: string
+  name: string
+  description?: string
+  baseParams?: any
+}
+
 export interface ScenarioRunRequest {
   scenarioId: string
   mode: string
@@ -64,7 +71,28 @@ export interface FaultInjection {
   createdAt: string
 }
 
+export interface FaultTemplate {
+  id: string
+  name: string
+  description?: string
+  faultType: string
+  params: Record<string, any>
+  durationSeconds: number
+  severity: string
+  tags?: string[]
+  enabled: boolean
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
 export const simApi = {
+  // 获取场景列表
+  async getScenarios(): Promise<Scenario[]> {
+    const response = await api.get('/api/v1/sim/scenarios')
+    return response.data.data || []
+  },
+
   // 获取所有仿真运行
   async getScenarioRuns(): Promise<ScenarioRun[]> {
     const response = await api.get('/api/v1/sim/runs')

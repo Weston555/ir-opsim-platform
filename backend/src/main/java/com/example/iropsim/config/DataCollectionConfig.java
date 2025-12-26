@@ -41,31 +41,14 @@ public class DataCollectionConfig {
     private final ObjectMapper objectMapper;
 
     /**
-     * 配置模拟数据采集器
-     *
-     * <p>创建基于正弦波数学模型的模拟数据采集器，作为默认的数据源。
-     * 该采集器使用优化后的算法生成符合工业机器人运动规律的数据。</p>
-     *
-     * @return 模拟数据采集器实例
+     * 模拟数据采集器现在通过@Component自动注册
+     * 这里不再需要手动@Bean定义
      */
-    @Bean
-    @Primary
-    public DataCollectorService simulationCollector() {
-        return new SimulationCollector(objectMapper);
-    }
 
     /**
-     * 配置远程设备数据采集器
-     *
-     * <p>创建用于从真实工业机器人设备采集数据的采集器。
-     * 该采集器预留了HTTP REST API、MQTT和WebSocket等通信接口。</p>
-     *
-     * @return 远程设备数据采集器实例
+     * 远程设备数据采集器现在通过@Component自动注册
+     * 这里不再需要手动@Bean定义
      */
-    @Bean
-    public DataCollectorService remoteDeviceCollector() {
-        return new RemoteDeviceCollector();
-    }
 
     /**
      * 初始化数据采集配置

@@ -9,24 +9,6 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * 故障模板Repository
- */
-@Repository
-public interface FaultTemplateRepository extends JpaRepository<FaultTemplate, UUID> {
-
-    List<FaultTemplate> findByEnabledTrueOrderByName();
-
-    @Query("SELECT ft FROM FaultTemplate ft WHERE ft.enabled = true AND " +
-           "(:faultType IS NULL OR ft.faultType = :faultType) AND " +
-           "(:severity IS NULL OR ft.severity = :severity) " +
-           "ORDER BY ft.name")
-    List<FaultTemplate> findFiltered(
-            @Param("faultType") String faultType,
-            @Param("severity") FaultTemplate.Severity severity);
-
-    List<FaultTemplate> findByFaultTypeAndEnabledTrue(String faultType);
-}
 
 /**
  * 故障模板Repository
@@ -42,7 +24,7 @@ public interface FaultTemplateRepository extends JpaRepository<FaultTemplate, UU
            "ORDER BY ft.name")
     List<FaultTemplate> findFiltered(
             @Param("faultType") String faultType,
-            @Param("severity") Severity severity);
+            @Param("severity") String severity);
 
     List<FaultTemplate> findByFaultTypeAndEnabledTrue(String faultType);
 }

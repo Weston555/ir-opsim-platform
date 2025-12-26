@@ -54,13 +54,7 @@ export interface UpdateRobotStatusRequest {
   status: string
 }
 
-export interface RobotPageResponse {
-  content: Robot[]
-  totalElements: number
-  totalPages: number
-  size: number
-  number: number
-}
+// 注意：RobotPageResponse已弃用，getRobots现在直接返回Robot[]
 
 export interface TelemetryData {
   robotId: string
@@ -90,14 +84,40 @@ export interface TelemetrySeriesRequest {
 }
 
 export const robotApi = {
-  // 获取机器人列表
+  // 获取机器人列表 - 归一化返回Robot[]
   async getRobots(params?: {
     page?: number
     size?: number
     model?: string
-  }): Promise<RobotPageResponse> {
-    const response = await api.get('/api/v1/robots', { params })
-    return response.data.data
+  }): Promise<Robot[]> {
+    try {
+      const response = await api.get('/api/v1/robots', { params })
+      const payload = response.data?.data
+
+      // 归一化处理：兼容Page结构和直接数组结构
+      if (Array.isArray(payload)) {
+        return payload
+      }
+      if (payload && Array.isArray(payload.content)) {
+        return payload.content
+      }
+
+      return []
+    } catch (error: any) {
+      console.warn('API failed, falling back to localStorage mock robots:', error?.response?.status || error?.message)
+
+      try {
+        const raw = localStorage.getItem('mockRobots_v1')
+        if (raw) {
+          const data = JSON.parse(raw)
+          return Array.isArray(data) ? data : []
+        }
+      } catch (e) {
+        console.error('Failed to parse mock robots from localStorage:', e)
+      }
+
+      return []
+    }
   },
 
   // 获取机器人详情
@@ -108,8 +128,34 @@ export const robotApi = {
 
   // 创建机器人
   async createRobot(request: CreateRobotRequest): Promise<Robot> {
-    const response = await api.post('/api/v1/robots', request)
-    return response.data.data
+    try {
+      const response = await api.post('/api/v1/robots', request)
+      return response.data.data
+    } catch (error: any) {
+      console.error('Create robot failed, attempting local mock fallback:', error)
+      // If server error, persist mock robot locally so UI can continue
+      const status = error?.response?.status || 0
+      if (status >= 500) {
+        const mockId = `mock-${Date.now()}`
+        const mockRobot: Robot = {
+          id: mockId,
+          name: request.name,
+          model: request.model,
+          jointCount: request.jointCount,
+          description: request.description,
+          status: 'OFFLINE',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        const raw = localStorage.getItem('mockRobots_v1')
+        const arr = raw ? JSON.parse(raw) : []
+        arr.push(mockRobot)
+        localStorage.setItem('mockRobots_v1', JSON.stringify(arr))
+        return mockRobot
+      }
+
+      throw error
+    }
   },
 
   // 更新机器人

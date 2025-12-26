@@ -208,6 +208,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Setting } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAlarmStore } from '@/stores/alarm'
+import { simApi } from '@/api/sim'
 import api from '@/api/auth'
 
 const router = useRouter()
@@ -263,9 +264,19 @@ const injectFault = async (robotId: string) => {
       scenarioRunId = runningRuns[0].id
       ElMessage.info('使用现有的仿真运行')
     } else {
+      // 获取可用场景
+      const scenarios = await simApi.getScenarios()
+      if (!scenarios.length) {
+        ElMessage.error('未找到可用场景，请先在数据库初始化或创建场景')
+        return
+      }
+
+      // 使用第一个可用场景（后续可做UI选择）
+      const scenarioId = scenarios[0].id
+
       // 创建新的仿真运行
       const createResponse = await api.post('/api/v1/sim/runs', {
-        scenarioId: '550e8400-e29b-41d4-a716-446655440000', // 使用默认场景
+        scenarioId, // 使用真实的场景ID
         mode: 'REALTIME',
         rateHz: 1,
         seed: Date.now()

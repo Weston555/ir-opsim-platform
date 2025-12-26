@@ -43,13 +43,12 @@
           </div>
         </template>
 
+        <!-- 机器人数据表格 - 支持增删改查操作 -->
         <el-table
           :data="robots"
           style="width: 100%"
           v-loading="loading"
-          :pagination="pagination"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
+          empty-text="暂无机器人数据，请点击上方添加按钮创建机器人"
         >
           <el-table-column prop="name" label="名称" width="150">
             <template #default="scope">
@@ -198,40 +197,42 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 import { Search, Plus, Refresh, ArrowDown, Monitor } from '@element-plus/icons-vue'
 import { robotApi } from '@/api/robot'
 import type { Robot } from '@/types/robot'
 
-// 响应式数据
-const loading = ref(false)
-const submitting = ref(false)
-const showDialog = ref(false)
-const showCreateDialog = ref(false)
-const isEditing = ref(false)
-const searchModel = ref('')
-const robots = ref<Robot[]>([])
+// ============ 响应式数据定义 ============
+// 页面加载状态管理
+const loading = ref(false)          // 表格数据加载状态
+const submitting = ref(false)       // 表单提交状态
+const showDialog = ref(false)       // 弹窗显示状态
+const showCreateDialog = ref(false) // 创建弹窗状态（暂时未使用）
+const isEditing = ref(false)        // 编辑模式标识
+const searchModel = ref('')         // 搜索关键词
+const robots = ref<Robot[]>([])     // 机器人列表数据
 
-// 分页
+// 分页状态管理 - 支持大数据量的分页展示
 const pagination = reactive({
-  currentPage: 1,
-  pageSize: 10,
-  total: 0
+  currentPage: 1,  // 当前页码
+  pageSize: 10,    // 每页显示数量
+  total: 0         // 总数据量
 })
 
-// 表单
+// 表单数据管理 - 用于创建和编辑机器人
 const robotFormRef = ref<FormInstance>()
 const robotForm = reactive({
-  id: '',
-  name: '',
-  model: '',
-  jointCount: 6,
-  description: ''
+  id: '',           // 机器人ID（编辑时使用）
+  name: '',         // 机器人名称
+  model: '',        // 机器人型号
+  jointCount: 6,    // 关节数量（默认6关节）
+  description: ''   // 机器人描述
 })
 
-// 表单验证规则
+// 表单验证规则 - 确保数据质量和完整性
 const robotRules = {
   name: [
     { required: true, message: '请输入机器人名称', trigger: 'blur' },
@@ -246,24 +247,43 @@ const robotRules = {
   ]
 }
 
-// 计算属性
+// 计算属性 - 动态生成弹窗标题
 const dialogTitle = computed(() => isEditing.value ? '编辑机器人' : '添加机器人')
 
-// 方法
+// Vue Router实例 - 用于页面导航
+const router = useRouter()
+
+// ============ 核心业务方法 ============
+
+/**
+ * 加载机器人列表数据
+ * 实现分页查询和搜索过滤功能，支持根据型号进行模糊搜索
+ * 这是用户界面与后端API交互的核心方法
+ */
 const loadRobots = async () => {
   loading.value = true
   try {
+    // 调用后端分页API，获取机器人列表
     const response = await robotApi.getRobots({
-      page: pagination.currentPage - 1,
+      page: pagination.currentPage - 1,  // Spring Boot分页从0开始
       size: pagination.pageSize,
-      model: searchModel.value || undefined
+      model: searchModel.value || undefined  // 搜索关键词
     })
 
+    // 更新表格数据和分页信息
     robots.value = response.data.content
     pagination.total = response.data.totalElements
+
+    // 成功加载后给出视觉反馈（可选）
+    if (robots.value.length === 0 && searchModel.value) {
+      ElMessage.info('未找到匹配的机器人')
+    }
   } catch (error) {
-    ElMessage.error('加载机器人列表失败')
+    // 错误处理 - 网络错误或服务异常
+    ElMessage.error('加载机器人列表失败，请检查网络连接')
+    console.error('Failed to load robots:', error)
   } finally {
+    // 无论成功还是失败，都要重置加载状态
     loading.value = false
   }
 }
@@ -284,20 +304,30 @@ const handleCurrentChange = (page: number) => {
   loadRobots()
 }
 
+/**
+ * 打开创建机器人弹窗
+ * 重置表单状态，准备创建新的机器人记录
+ */
 const openCreateDialog = () => {
-  isEditing.value = false
-  resetForm()
-  showDialog.value = true
+  isEditing.value = false  // 设置为创建模式
+  resetForm()              // 清空表单数据
+  showDialog.value = true  // 显示弹窗
 }
 
+/**
+ * 打开编辑机器人弹窗
+ * 将选中的机器人数据填充到表单中，进行编辑操作
+ * @param robot 要编辑的机器人对象
+ */
 const editRobot = (robot: Robot) => {
-  isEditing.value = true
+  isEditing.value = true   // 设置为编辑模式
+  // 将机器人数据填充到表单
   robotForm.id = robot.id
   robotForm.name = robot.name
   robotForm.model = robot.model
   robotForm.jointCount = robot.jointCount
   robotForm.description = robot.description || ''
-  showDialog.value = true
+  showDialog.value = true  // 显示弹窗
 }
 
 const viewRobot = (robot: Robot) => {
@@ -305,53 +335,86 @@ const viewRobot = (robot: Robot) => {
   router.push(`/robots/${robot.id}`)
 }
 
+/**
+ * 提交机器人表单数据
+ * 处理机器人创建和更新操作的核心方法
+ * 包含表单验证、API调用、状态管理和错误处理
+ */
 const submitRobot = async () => {
+  // 表单引用检查
   if (!robotFormRef.value) return
 
+  // 客户端表单验证 - 防止无效数据提交
   try {
     await robotFormRef.value.validate()
   } catch (error) {
+    // 验证失败，中断提交
     return
   }
 
+  // 设置提交状态，禁用重复提交
   submitting.value = true
+
   try {
     if (isEditing.value) {
+      // 编辑模式：调用更新API
       await robotApi.updateRobot(robotForm.id, robotForm)
       ElMessage.success('机器人更新成功')
     } else {
+      // 创建模式：调用创建API
       await robotApi.createRobot(robotForm)
       ElMessage.success('机器人创建成功')
     }
 
-    showDialog.value = false
-    loadRobots()
+    // 操作成功后的清理工作
+    showDialog.value = false  // 关闭弹窗
+    loadRobots()              // 刷新列表数据
   } catch (error: any) {
+    // 错误处理 - 显示后端返回的错误信息
     ElMessage.error(error?.response?.data?.message || '操作失败')
+    console.error('Robot operation failed:', error)
   } finally {
+    // 无论成功还是失败，都要重置提交状态
     submitting.value = false
   }
 }
 
+/**
+ * 删除指定的机器人
+ * 包含用户确认、API调用和状态更新的完整删除流程
+ * 使用Element Plus的MessageBox组件提供友好的确认界面
+ * @param robot 要删除的机器人对象
+ */
 const deleteRobot = async (robot: Robot) => {
   try {
+    // 用户确认对话框 - 防止误操作
     await ElMessageBox.confirm(
       `确定要删除机器人 "${robot.name}" 吗？此操作不可撤销。`,
       '确认删除',
       {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
-        type: 'warning',
+        type: 'warning',  // 警告样式突出危险操作
       }
     )
 
+    // 用户确认后执行删除操作
     await robotApi.deleteRobot(robot.id)
+
+    // 删除成功反馈
     ElMessage.success('机器人删除成功')
+
+    // 刷新列表数据
     loadRobots()
+
   } catch (error) {
+    // 处理用户取消操作的情况
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      // 网络错误或其他异常
+      ElMessage.error('删除失败，请重试')
+      console.error('Robot deletion failed:', error)
     }
+    // 如果是用户取消，不显示错误信息
   }
 }
 

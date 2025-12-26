@@ -218,69 +218,26 @@ CREATE INDEX idx_audit_log_ts ON audit_log(ts DESC);
 CREATE INDEX idx_audit_log_actor ON audit_log(actor_user_id, ts DESC);
 CREATE INDEX idx_audit_log_action ON audit_log(action, ts DESC);
 
--- Insert default roles
+-- Insert minimal seed data for basic functionality
 INSERT INTO app_role (name, description) VALUES
 ('ADMIN', 'System administrator with full access'),
 ('OPERATOR', 'Operations user with monitoring and management access'),
 ('VIEWER', 'Read-only user with view access');
 
--- Insert default admin user (password: admin123)
--- Note: In production, use proper password hashing
 INSERT INTO app_user (username, password_hash, email, full_name) VALUES
 ('admin', '{noop}admin123', 'admin@iropsim.com', 'System Administrator');
 
--- Assign admin role to admin user
 INSERT INTO user_role (user_id, role_id) VALUES
-((SELECT id FROM app_user WHERE username = 'admin'),
- (SELECT id FROM app_role WHERE name = 'ADMIN'));
+((SELECT id FROM app_user WHERE username = 'admin'), (SELECT id FROM app_role WHERE name = 'ADMIN'));
 
--- Insert sample robot
 INSERT INTO robot (name, model, joint_count) VALUES
-('Robot-001', 'IRB-6700', 6),
-('Robot-002', 'IRB-4600', 6);
+('Robot-001', 'IRB-6700', 6);
 
--- Insert sample scenario
 INSERT INTO scenario (name, description, base_params) VALUES
-('Normal Operation', 'Normal robot operation scenario', '{"current_nominal": 2.5, "temp_nominal": 40.0, "vibration_nominal": 0.1}'),
-('Heavy Load', 'Heavy load operation scenario', '{"current_nominal": 4.0, "temp_nominal": 55.0, "vibration_nominal": 0.3}'),
-('Maintenance Mode', 'Maintenance operation scenario', '{"current_nominal": 1.0, "temp_nominal": 35.0, "vibration_nominal": 0.05}');
+('Normal Operation', 'Normal robot operation scenario', '{"current_nominal": 2.5, "temp_nominal": 40.0, "vibration_nominal": 0.1}');
 
--- Insert knowledge base cases
-INSERT INTO kb_case (title, fault_type, root_cause, symptoms, actions, created_by, created_at) VALUES
-('电机过热故障', 'OVERHEAT', '电机轴承润滑不足导致摩擦发热', '["电机温度异常升高", "电流略有增加", "振动幅度增大"]', '["检查电机轴承润滑油位", "清理电机散热片灰尘", "检查风扇工作状态", "必要时更换轴承"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('减速器振动异常', 'HIGH_VIBRATION', '减速器齿轮磨损严重', '["关节处振动加剧", "运行时发出异常噪音", "位置精度下降"]', '["检查减速器油位和油质", "检测齿轮啮合间隙", "检查紧固螺栓是否松动", "必要时更换齿轮"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('驱动器电流尖峰', 'CURRENT_SPIKE', '电机卡死或负载突变', '["电流突然大幅上升", "电机无法正常运转", "控制系统报错"]', '["检查电机机械连接", "验证负载是否正常", "检查驱动器参数设置", "重启控制系统"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('传感器漂移故障', 'SENSOR_DRIFT', '传感器长期使用老化', '["位置反馈逐渐不准", "控制精度下降", "温度/电流数值异常"]', '["校准传感器零点", "检查信号线连接", "更换老化传感器", "更新控制参数"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('轴承磨损故障', 'HIGH_VIBRATION', '关节轴承长期磨损', '["特定关节振动异常", "运行噪音增大", "定位精度下降"]', '["检查轴承润滑状态", "测量轴承间隙", "更换磨损轴承", "调整关节间隙"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('控制卡故障', 'CURRENT_SPIKE', '控制卡硬件损坏', '["电流控制异常", "位置控制失准", "系统频繁重启"]', '["检查控制卡供电", "更换控制卡", "更新固件版本", "重新标定系统"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('编码器故障', 'SENSOR_DRIFT', '编码器信号丢失或异常', '["位置反馈中断", "电机运行不稳", "系统报编码器错误"]', '["检查编码器线缆连接", "测试编码器信号", "更换故障编码器", "重新初始化系统"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('电源模块故障', 'OVERHEAT', '电源模块散热不良', '["电源温度过高", "输出电压不稳", "系统运行异常"]', '["清理电源模块散热片", "检查风扇工作状态", "更换电源模块", "检查供电线路"]', (SELECT id FROM app_user WHERE username = 'admin'), NOW());
-
--- Insert knowledge base rules
-INSERT INTO kb_rule (name, description, priority, when_expr, then_case_id, enabled, created_by, created_at) VALUES
-('温度异常规则', '检测电机温度异常的规则', 1, '{"and": [{"field": "alarmType", "op": "equals", "value": "TEMP_ANOMALY"}, {"field": "severity", "op": "greater_than", "value": "INFO"}]}', (SELECT id FROM kb_case WHERE title = '电机过热故障'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('振动异常规则', '检测关节振动异常的规则', 1, '{"and": [{"field": "alarmType", "op": "equals", "value": "VIB_ANOMALY"}, {"field": "severity", "op": "greater_than", "value": "INFO"}]}', (SELECT id FROM kb_case WHERE title = '减速器振动异常'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('电流尖峰规则', '检测电流异常尖峰的规则', 2, '{"and": [{"field": "alarmType", "op": "equals", "value": "CURRENT_ANOMALY"}, {"field": "severity", "op": "equals", "value": "CRITICAL"}]}', (SELECT id FROM kb_case WHERE title = '驱动器电流尖峰'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('传感器漂移规则', '检测传感器信号漂移的规则', 2, '{"and": [{"field": "alarmType", "op": "equals", "value": "UNKNOWN_ANOMALY"}, {"field": "score", "op": "greater_than", "value": 2.0}]}', (SELECT id FROM kb_case WHERE title = '传感器漂移故障'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('轴承磨损规则', '检测轴承磨损导致振动的规则', 3, '{"and": [{"field": "alarmType", "op": "equals", "value": "VIB_ANOMALY"}, {"field": "jointIndex", "op": "greater_than", "value": -1}]}', (SELECT id FROM kb_case WHERE title = '轴承磨损故障'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('电源故障规则', '检测电源模块故障的规则', 1, '{"and": [{"field": "alarmType", "op": "equals", "value": "TEMP_ANOMALY"}, {"field": "score", "op": "greater_than", "value": 3.0}]}', (SELECT id FROM kb_case WHERE title = '电源模块故障'), true, (SELECT id FROM app_user WHERE username = 'admin'), NOW());
-
--- Insert fault injection templates
--- Insert fault templates with realistic industrial robot faults
-INSERT INTO fault_template (name, description, fault_type, params, duration_seconds, severity, tags, enabled, created_by, created_at) VALUES
-('电机轴承磨损', '电机轴承长期运行导致磨损，表现为电流和振动异常增加', 'OVERHEAT', '{"amplitude": 5.0, "jointIndex": 0}', 180, 'WARN', '{"电机", "轴承", "磨损"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('减速器齿轮故障', '减速器齿轮啮合不良，振动显著增加，伴随电流波动', 'HIGH_VIBRATION', '{"amplitude": 0.15, "jointIndex": 1}', 120, 'CRITICAL', '{"减速器", "齿轮", "振动"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('伺服驱动器过载', '伺服驱动器过载运行，电流急剧上升，可能导致过热', 'CURRENT_SPIKE', '{"amplitude": 8.0, "jointIndex": 2}', 60, 'CRITICAL', '{"驱动器", "过载", "电流"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('编码器信号漂移', '编码器信号逐渐漂移，导致位置控制精度下降', 'SENSOR_DRIFT', '{"amplitude": 0.02, "driftRate": 0.001, "jointIndex": 0}', 300, 'WARN', '{"编码器", "位置", "精度"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('机械臂谐振', '机械臂在特定频率下发生谐振，振动大幅增加', 'HIGH_VIBRATION', '{"amplitude": 0.25, "jointIndex": 3}', 90, 'WARN', '{"谐振", "机械臂", "频率"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('电源模块老化', '电源模块老化导致输出电压不稳，电流波动增加', 'CURRENT_SPIKE', '{"amplitude": 3.5, "jointIndex": 4}', 240, 'WARN', '{"电源", "电压", "老化"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('关节间隙过大', '关节连接间隙增大导致定位精度下降和振动', 'HIGH_VIBRATION', '{"amplitude": 0.12, "jointIndex": 1}', 150, 'INFO', '{"关节", "间隙", "精度"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('控制卡通信故障', '控制卡通信异常导致指令执行不稳定', 'CURRENT_SPIKE', '{"amplitude": 2.0, "jointIndex": 5}', 45, 'CRITICAL', '{"控制卡", "通信", "指令"}', true, (SELECT id FROM app_user WHERE username = 'admin'), NOW());
-('轻度电机过热', '电机温度缓慢上升，轻度故障', 'OVERHEAT', '{"amplitude": 10.0, "jointIndex": 0}', 60, 'WARN', ARRAY['电机', '温度', '轻度'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('重度电机过热', '电机温度快速上升，重度故障', 'OVERHEAT', '{"amplitude": 25.0, "jointIndex": 0}', 120, 'CRITICAL', ARRAY['电机', '温度', '重度'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('关节振动异常', '特定关节出现振动异常', 'HIGH_VIBRATION', '{"amplitude": 2.5, "jointIndex": 2}', 90, 'WARN', ARRAY['振动', '关节', '轴承'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('多关节振动', '多个关节同时出现振动异常', 'HIGH_VIBRATION', '{"amplitude": 1.8, "jointIndex": -1}', 180, 'CRITICAL', ARRAY['振动', '多关节', '严重'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('电流尖峰故障', '驱动器电流突然出现尖峰', 'CURRENT_SPIKE', '{"amplitude": 3.0, "jointIndex": 1}', 30, 'CRITICAL', ARRAY['电流', '驱动器', '尖峰'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('传感器轻度漂移', '位置传感器信号轻度漂移', 'SENSOR_DRIFT', '{"amplitude": 0.02, "driftRate": 0.005, "jointIndex": 3}', 300, 'INFO', ARRAY['传感器', '漂移', '轻度'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('传感器重度漂移', '位置传感器信号严重漂移', 'SENSOR_DRIFT', '{"amplitude": 0.1, "driftRate": 0.02, "jointIndex": 3}', 600, 'WARN', ARRAY['传感器', '漂移', '重度'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW()),
-('复合故障-电机+振动', '电机过热同时伴随振动异常', 'OVERHEAT', '{"amplitude": 15.0, "jointIndex": 0, "secondaryFault": "HIGH_VIBRATION", "secondaryAmplitude": 2.0}', 150, 'CRITICAL', ARRAY['复合故障', '电机', '振动'], true, (SELECT id FROM app_user WHERE username = 'admin'), NOW());
+INSERT INTO fault_template (name, description, fault_type, params, duration_seconds, severity, tags, enabled, created_by) VALUES
+('电机过热', '电机温度异常升高', 'OVERHEAT', '{"amplitude": 10.0, "jointIndex": 0}', 60, 'WARN', '{"电机", "温度"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
+('振动异常', '关节振动异常', 'HIGH_VIBRATION', '{"amplitude": 2.5, "jointIndex": 2}', 90, 'WARN', '{"振动", "关节"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
+('电流尖峰', '电流突然上升', 'CURRENT_SPIKE', '{"amplitude": 3.0, "jointIndex": 1}', 30, 'CRITICAL', '{"电流", "驱动器"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
+('传感器漂移', '位置传感器信号漂移', 'SENSOR_DRIFT', '{"amplitude": 0.02, "driftRate": 0.005, "jointIndex": 3}', 300, 'INFO', '{"传感器", "位置"}', true, (SELECT id FROM app_user WHERE username = 'admin'));

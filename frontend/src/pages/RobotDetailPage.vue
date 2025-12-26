@@ -14,8 +14,178 @@
           <el-icon><ArrowLeft /></el-icon>
           返回
         </el-button>
+        <el-switch
+          v-model="useMockTelemetry"
+          active-text="使用模拟数据"
+          inactive-text="使用真实数据"
+          size="small"
+          style="margin-left: 12px;"
+        />
       </div>
     </div>
+
+    <!-- 模拟数据参数面板 -->
+    <el-collapse v-if="useMockTelemetry" style="margin-bottom: 20px;">
+      <el-collapse-item title="模拟数据参数设置（论文可复现实验）" name="mock-params">
+        <div class="mock-params-grid">
+          <div class="param-group">
+            <h4>可复现性</h4>
+            <el-input-number
+              v-model="mockSeed"
+              :min="1"
+              :max="999999"
+              :step="1"
+              label="种子值"
+              placeholder="固定种子保证可复现"
+              size="small"
+              style="width: 200px;"
+              @change="updateMockParams"
+            />
+          </div>
+
+          <div class="param-group">
+            <h4>数据范围</h4>
+            <div class="range-inputs">
+              <span>电流: </span>
+              <el-input-number
+                v-model="mockRanges.current.min"
+                :min="0"
+                :max="50"
+                :step="0.1"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span> - </span>
+              <el-input-number
+                v-model="mockRanges.current.max"
+                :min="0"
+                :max="50"
+                :step="0.1"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span>A</span>
+            </div>
+
+            <div class="range-inputs">
+              <span>振动: </span>
+              <el-input-number
+                v-model="mockRanges.vibration.min"
+                :min="0"
+                :max="10"
+                :step="0.01"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span> - </span>
+              <el-input-number
+                v-model="mockRanges.vibration.max"
+                :min="0"
+                :max="10"
+                :step="0.01"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span>RMS</span>
+            </div>
+
+            <div class="range-inputs">
+              <span>温度: </span>
+              <el-input-number
+                v-model="mockRanges.temperature.min"
+                :min="0"
+                :max="100"
+                :step="1"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span> - </span>
+              <el-input-number
+                v-model="mockRanges.temperature.max"
+                :min="0"
+                :max="100"
+                :step="1"
+                size="small"
+                style="width: 80px;"
+                @change="updateMockParams"
+              />
+              <span>°C</span>
+            </div>
+          </div>
+
+          <div class="param-group">
+            <h4>噪声与周期</h4>
+            <el-input-number
+              v-model="mockNoise"
+              :min="0"
+              :max="5"
+              :step="0.01"
+              label="噪声幅度"
+              size="small"
+              style="width: 120px;"
+              @change="updateMockParams"
+            />
+            <el-input-number
+              v-model="mockTrend"
+              :min="-0.1"
+              :max="0.1"
+              :step="0.001"
+              label="趋势系数"
+              size="small"
+              style="width: 120px; margin-left: 10px;"
+              @change="updateMockParams"
+            />
+            <el-input-number
+              v-model="mockPeriod"
+              :min="60"
+              :max="1800"
+              :step="30"
+              label="周期(秒)"
+              size="small"
+              style="width: 120px; margin-left: 10px;"
+              @change="updateMockParams"
+            />
+          </div>
+
+          <div class="param-group">
+            <h4>控制</h4>
+            <el-input-number
+              v-model="mockIntervalMs"
+              :min="100"
+              :max="5000"
+              :step="100"
+              label="更新间隔(ms)"
+              size="small"
+              style="width: 120px;"
+              @change="updateMockParams"
+            />
+            <el-input-number
+              v-model="mockMaxPoints"
+              :min="100"
+              :max="2000"
+              :step="50"
+              label="最大点数"
+              size="small"
+              style="width: 120px; margin-left: 10px;"
+              @change="updateMockParams"
+            />
+            <el-button
+              type="primary"
+              size="small"
+              style="margin-left: 10px;"
+              @click="restartMockGenerators"
+            >
+              重新启动
+            </el-button>
+          </div>
+        </div>
+      </el-collapse-item>
+    </el-collapse>
 
     <!-- 实时状态卡片 -->
     <div class="status-cards" v-if="telemetryData">
@@ -173,6 +343,7 @@ import * as echarts from 'echarts'
 import { useRobotStore } from '@/stores/robot'
 import type { TelemetryData } from '@/types/robot'
 import type { Robot } from '@/types/robot'
+import { createMockSeriesGenerator, type MockSeriesGenerator } from '@/mock/telemetry'
 
 const route = useRoute()
 const robotStore = useRobotStore()
@@ -184,6 +355,26 @@ const error = ref('')
 const timeRange = ref('15m')
 const telemetryData = ref<TelemetryData | null>(null)
 const faultInjections = ref<any[]>([])
+// mock telemetry control
+const useMockTelemetry = ref(false)
+let mockCurrentGen: MockSeriesGenerator | null = null
+let mockVibrationGen: MockSeriesGenerator | null = null
+let mockTemperatureGen: MockSeriesGenerator | null = null
+let mockInterval: number | null = null
+let mockActivatedByError = false
+
+// mock parameters for reproducibility
+const mockSeed = ref(12345)
+const mockRanges = reactive({
+  current: { min: 0, max: 20 },
+  vibration: { min: 0, max: 5 },
+  temperature: { min: 20, max: 90 }
+})
+const mockNoise = ref(0.5)
+const mockTrend = ref(0.001)
+const mockPeriod = ref(300)
+const mockIntervalMs = ref(1000)
+const mockMaxPoints = ref(900)
 
 // 图表实例
 const currentChartRef = ref<HTMLDivElement>()
@@ -196,14 +387,27 @@ let temperatureChart: echarts.ECharts | null = null
 // 计算属性
 const robot = computed(() => robotStore.currentRobot)
 const currentValue = computed(() => {
+  // prefer mock when enabled or when mock activated due to error
+  if (useMockTelemetry.value || mockActivatedByError) {
+    const s = mockCurrentGen?.getSeries() || []
+    return s.length ? s[s.length - 1].value : null
+  }
   if (!telemetryData.value?.jointSamples?.length) return null
   return telemetryData.value.jointSamples[0].currentA
 })
 const vibrationValue = computed(() => {
+  if (useMockTelemetry.value || mockActivatedByError) {
+    const s = mockVibrationGen?.getSeries() || []
+    return s.length ? s[s.length - 1].value : null
+  }
   if (!telemetryData.value?.jointSamples?.length) return null
   return telemetryData.value.jointSamples[0].vibrationRms
 })
 const temperatureValue = computed(() => {
+  if (useMockTelemetry.value || mockActivatedByError) {
+    const s = mockTemperatureGen?.getSeries() || []
+    return s.length ? s[s.length - 1].value : null
+  }
   if (!telemetryData.value?.jointSamples?.length) return null
   return telemetryData.value.jointSamples[0].temperatureC
 })
@@ -213,12 +417,46 @@ onMounted(async () => {
   await loadData()
   initCharts()
   robotStore.initWebSocketSubscription(robotId)
+  // init mock generators with sensible defaults
+  mockCurrentGen = createMockSeriesGenerator({
+    metric: 'current_a',
+    startValue: 2.5,
+    min: 0,
+    max: 20,
+    noise: 0.1,
+    intervalMs: 1000,
+    maxPoints: 900
+  })
+  mockVibrationGen = createMockSeriesGenerator({
+    metric: 'vibration_rms',
+    startValue: 0.1,
+    min: 0,
+    max: 5,
+    noise: 0.01,
+    intervalMs: 1000,
+    maxPoints: 900
+  })
+  mockTemperatureGen = createMockSeriesGenerator({
+    metric: 'temperature_c',
+    startValue: 40,
+    min: 20,
+    max: 90,
+    noise: 0.2,
+    intervalMs: 1000,
+    maxPoints: 900
+  })
+  // when switch toggles, start/stop mock stream
+  watch(useMockTelemetry, (val) => {
+    if (val) startMockStream()
+    else stopMockStream()
+  })
 })
 
 // 清理
 onUnmounted(() => {
   robotStore.unsubscribeWebSocket(robotId)
   disposeCharts()
+  stopMockStream()
 })
 
 // 监听遥测数据变化
@@ -285,6 +523,14 @@ const updateCharts = async () => {
   const minutes = timeRange.value === '5m' ? 5 : timeRange.value === '30m' ? 30 : 15
   const from = new Date(Date.now() - minutes * 60 * 1000)
 
+  // If using mock telemetry explicitly, feed charts from mock generators
+  if (useMockTelemetry.value || mockActivatedByError) {
+    updateCurrentChart(mockCurrentGen?.getSeries() || [])
+    updateVibrationChart(mockVibrationGen?.getSeries() || [])
+    updateTemperatureChart(mockTemperatureGen?.getSeries() || [])
+    return
+  }
+
   try {
     // 加载时序数据
     const [currentData, vibrationData, temperatureData] = await Promise.all([
@@ -293,12 +539,32 @@ const updateCharts = async () => {
       robotStore.loadTelemetrySeries(robotId, 'temperature_c', from),
     ])
 
-    // 更新图表
+    // 如果后端返回空或异常数据，降级到mock
+    const valid = (arr: any[]) => Array.isArray(arr) && arr.length > 0
+    if (!valid(currentData) && !valid(vibrationData) && !valid(temperatureData)) {
+      // 自动降级并提示一次
+      mockActivatedByError = true
+      ElMessage.warning('遥测数据为空或不可用，已切换到模拟数据')
+      startMockStream()
+      updateCurrentChart(mockCurrentGen?.getSeries() || [])
+      updateVibrationChart(mockVibrationGen?.getSeries() || [])
+      updateTemperatureChart(mockTemperatureGen?.getSeries() || [])
+      return
+    }
+
+    // 更新图表 (后端返回的series应为 {ts, value} 格式)
     updateCurrentChart(currentData)
     updateVibrationChart(vibrationData)
     updateTemperatureChart(temperatureData)
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to update charts:', error)
+    // 降级到mock模式
+    mockActivatedByError = true
+    ElMessage.warning('获取遥测数据失败，已切换到模拟数据')
+    startMockStream()
+    updateCurrentChart(mockCurrentGen?.getSeries() || [])
+    updateVibrationChart(mockVibrationGen?.getSeries() || [])
+    updateTemperatureChart(mockTemperatureGen?.getSeries() || [])
   }
 }
 
@@ -321,7 +587,7 @@ const updateCurrentChart = (data: any[]) => {
       name: '电流',
       type: 'line',
       smooth: true,
-      data: data.map(item => [new Date(item.ts), item.currentA]),
+      data: data.map((p: any) => [new Date(p.ts), p.value]),
       lineStyle: { color: '#409EFF' },
       itemStyle: { color: '#409EFF' }
     }],
@@ -350,7 +616,7 @@ const updateVibrationChart = (data: any[]) => {
       name: '振动',
       type: 'line',
       smooth: true,
-      data: data.map(item => [new Date(item.ts), item.vibrationRms]),
+      data: data.map((p: any) => [new Date(p.ts), p.value]),
       lineStyle: { color: '#E6A23C' },
       itemStyle: { color: '#E6A23C' }
     }],
@@ -364,6 +630,9 @@ const updateVibrationChart = (data: any[]) => {
 const updateTemperatureChart = (data: any[]) => {
   if (!temperatureChart) return
 
+  // 计算是否有超温数据（用于背景着色）
+  const hasHighTemp = data.some((p: any) => p.value > 70)
+
   const option = {
     title: { text: '关节温度 (°C)' },
     tooltip: { trigger: 'axis' },
@@ -373,20 +642,85 @@ const updateTemperatureChart = (data: any[]) => {
     },
     yAxis: {
       type: 'value',
-      name: '温度 (°C)'
+      name: '温度 (°C)',
+      // 添加预警区域背景
+      splitArea: {
+        show: true,
+        areaStyle: {
+          color: hasHighTemp ? ['rgba(245, 108, 108, 0.1)', 'transparent'] : 'transparent'
+        }
+      }
     },
-    series: [{
-      name: '温度',
-      type: 'line',
-      smooth: true,
-      data: data.map(item => [new Date(item.ts), item.temperatureC]),
-      lineStyle: { color: '#F56C6C' },
-      itemStyle: { color: '#F56C6C' }
-    }],
+    series: [
+      {
+        name: '温度',
+        type: 'line',
+        smooth: true,
+        data: data.map((p: any) => [new Date(p.ts), p.value]),
+        lineStyle: { color: '#F56C6C' },
+        itemStyle: { color: '#F56C6C' },
+        // 高亮超温点
+        markPoint: {
+          data: data.filter((p: any) => p.value > 70).map((p: any) => ({
+            coord: [new Date(p.ts), p.value],
+            itemStyle: { color: '#F56C6C' },
+            symbolSize: 8
+          }))
+        }
+      },
+      // 预警阈值线
+      {
+        name: '预警线',
+        type: 'line',
+        data: [],
+        markLine: {
+          silent: true,
+          lineStyle: {
+            color: '#E6A23C',
+            type: 'dashed'
+          },
+          data: [{
+            yAxis: 70,
+            label: {
+              formatter: '70°C 预警线',
+              position: 'start'
+            }
+          }]
+        }
+      }
+    ],
     dataZoom: [{ type: 'inside' }, { type: 'slider' }]
   }
 
   temperatureChart.setOption(option, true)
+}
+
+// Mock stream control
+const startMockStream = () => {
+  if (mockInterval !== null) return
+  mockCurrentGen?.start()
+  mockVibrationGen?.start()
+  mockTemperatureGen?.start()
+  // update charts immediately and then per second
+  updateCurrentChart(mockCurrentGen?.getSeries() || [])
+  updateVibrationChart(mockVibrationGen?.getSeries() || [])
+  updateTemperatureChart(mockTemperatureGen?.getSeries() || [])
+  mockInterval = window.setInterval(() => {
+    updateCurrentChart(mockCurrentGen?.getSeries() || [])
+    updateVibrationChart(mockVibrationGen?.getSeries() || [])
+    updateTemperatureChart(mockTemperatureGen?.getSeries() || [])
+  }, 1000)
+}
+
+const stopMockStream = () => {
+  if (mockInterval !== null) {
+    clearInterval(mockInterval)
+    mockInterval = null
+  }
+  mockCurrentGen?.stop()
+  mockVibrationGen?.stop()
+  mockTemperatureGen?.stop()
+  mockActivatedByError = false
 }
 
 // 加载故障注入数据
@@ -418,6 +752,62 @@ const loadFaultInjections = async () => {
   } catch (error) {
     console.error('Failed to load fault injections:', error)
   }
+}
+
+// mock参数更新
+const updateMockParams = () => {
+  if (!useMockTelemetry.value && !mockActivatedByError) return
+
+  // 更新所有生成器的参数
+  if (mockCurrentGen) {
+    mockCurrentGen.updateParams({
+      min: mockRanges.current.min,
+      max: mockRanges.current.max,
+      noise: mockNoise.value,
+      trend: mockTrend.value,
+      intervalMs: mockIntervalMs.value,
+      maxPoints: mockMaxPoints.value,
+      period: mockPeriod.value
+    })
+  }
+
+  if (mockVibrationGen) {
+    mockVibrationGen.updateParams({
+      min: mockRanges.vibration.min,
+      max: mockRanges.vibration.max,
+      noise: mockNoise.value,
+      trend: mockTrend.value,
+      intervalMs: mockIntervalMs.value,
+      maxPoints: mockMaxPoints.value,
+      period: mockPeriod.value
+    })
+  }
+
+  if (mockTemperatureGen) {
+    mockTemperatureGen.updateParams({
+      min: mockRanges.temperature.min,
+      max: mockRanges.temperature.max,
+      noise: mockNoise.value,
+      trend: mockTrend.value,
+      intervalMs: mockIntervalMs.value,
+      maxPoints: mockMaxPoints.value,
+      period: mockPeriod.value
+    })
+  }
+}
+
+// 重新启动mock生成器
+const restartMockGenerators = () => {
+  // 停止现有生成器
+  stopMockGenerators()
+
+  // 设置种子
+  mockCurrentGen?.setSeed(mockSeed.value)
+  mockVibrationGen?.setSeed(mockSeed.value + 1)
+  mockTemperatureGen?.setSeed(mockSeed.value + 2)
+
+  // 启动生成器
+  startMockGenerators()
 }
 
 // 时间轴相关方法
@@ -563,6 +953,40 @@ const getFaultColor = (faultType: string) => {
 .status-value .unit {
   font-size: 16px;
   color: #909399;
+}
+
+.mock-params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  padding: 16px 0;
+}
+
+.param-group {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.param-group h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.range-inputs span {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
 }
 
 .charts-section {

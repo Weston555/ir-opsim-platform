@@ -379,6 +379,65 @@ const injectedFaults = ref<FaultInjection[]>([])
 const selectedRun = ref<ScenarioRun | null>(null)
 const replayingRuns = ref<Record<string, boolean>>({})
 const faultTemplates = ref<FaultTemplate[]>([])
+// 内置故障模板（当后端不可用时回退，便于论文演示）
+const builtInTemplates: FaultTemplate[] = [
+  {
+    id: 'builtin-overheat',
+    name: '过热示例',
+    description: '模拟关节过热故障',
+    faultType: 'OVERHEAT',
+    params: { amplitude: 10 },
+    durationSeconds: 60,
+    severity: 'HIGH',
+    tags: ['builtin'],
+    enabled: true,
+    createdBy: 'system',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'builtin-vibration',
+    name: '高振动示例',
+    description: '模拟高振动故障',
+    faultType: 'HIGH_VIBRATION',
+    params: { amplitude: 0.5 },
+    durationSeconds: 120,
+    severity: 'MEDIUM',
+    tags: ['builtin'],
+    enabled: true,
+    createdBy: 'system',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'builtin-current-spike',
+    name: '电流尖峰示例',
+    description: '模拟电流突增故障',
+    faultType: 'CURRENT_SPIKE',
+    params: { amplitude: 3.0 },
+    durationSeconds: 30,
+    severity: 'HIGH',
+    tags: ['builtin'],
+    enabled: true,
+    createdBy: 'system',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'builtin-drift',
+    name: '传感器漂移示例',
+    description: '模拟传感器线性漂移故障',
+    faultType: 'SENSOR_DRIFT',
+    params: { drift_rate: 0.001 },
+    durationSeconds: 300,
+    severity: 'LOW',
+    tags: ['builtin'],
+    enabled: true,
+    createdBy: 'system',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+]
 
 const faultFormRef = ref<FormInstance>()
 
@@ -405,8 +464,18 @@ const refreshRuns = async () => {
   try {
     // 调用API获取仿真运行列表
     scenarioRuns.value = await simApi.getScenarioRuns()
-  } catch (error) {
-    ElMessage.error('获取仿真运行列表失败')
+  } catch (error: any) {
+    console.error('Failed to load scenario runs:', error)
+    console.error('Response status:', error?.response?.status)
+    console.error('Response data:', error?.response?.data)
+
+    const errorMsg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      '获取仿真运行列表失败'
+
+    ElMessage.error(`仿真运行加载失败: ${errorMsg}`)
   } finally {
     loading.value = false
   }
@@ -416,9 +485,22 @@ const refreshRuns = async () => {
 const loadFaultTemplates = async () => {
   try {
     faultTemplates.value = await simApi.getFaultTemplates()
-  } catch (error) {
+  } catch (error: any) {
+    // 输出详细错误信息到控制台
     console.error('Failed to load fault templates:', error)
-    ElMessage.error('加载故障模板失败')
+    console.error('Response status:', error?.response?.status)
+    console.error('Response data:', error?.response?.data)
+
+    // 显示具体的错误信息
+    const errorMsg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      '加载故障模板失败'
+
+    ElMessage.error(`故障模板加载失败: ${errorMsg}，已回退至内置模板`)
+    // 回退到内置模板，确保页面可用（论文演示兜底）
+    faultTemplates.value = builtInTemplates
   }
 }
 
@@ -542,8 +624,18 @@ const loadInjectedFaults = async () => {
     // 调用API获取已注入的故障列表
     const response = await api.get(`/api/v1/sim/runs/${selectedRun.value.id}/faults`)
     injectedFaults.value = response.data.data || []
-  } catch (error) {
-    ElMessage.error('获取故障列表失败')
+  } catch (error: any) {
+    console.error('Failed to load injected faults:', error)
+    console.error('Response status:', error?.response?.status)
+    console.error('Response data:', error?.response?.data)
+
+    const errorMsg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      '获取故障列表失败'
+
+    ElMessage.error(`故障列表加载失败: ${errorMsg}`)
   } finally {
     loadingFaults.value = false
   }

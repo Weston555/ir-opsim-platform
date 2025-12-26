@@ -48,6 +48,16 @@ public class SimulationController {
     private final SimulationEngine simulationEngine;
     private final ObjectMapper objectMapper;
 
+    private final List<DataCollectorService> dataCollectors;
+
+    @GetMapping("/scenarios")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('OPERATOR') or hasRole('VIEWER')")
+    @Operation(summary = "获取场景列表", description = "获取系统内所有可用仿真场景")
+    public ResponseEntity<ApiResponse<List<Scenario>>> getScenarios() {
+        List<Scenario> scenarios = scenarioRepository.findAll();
+        return ResponseEntity.ok(ApiResponse.success(scenarios));
+    }
+
     @PostMapping("/runs")
     @PreAuthorize("hasRole('ADMIN') or hasRole('OPERATOR')")
     @Operation(summary = "创建仿真运行", description = "创建新的仿真运行实例")
@@ -160,7 +170,7 @@ public class SimulationController {
     public ResponseEntity<ApiResponse<List<FaultTemplate>>> getFaultTemplates(
             @RequestParam(required = false) String faultType,
             @RequestParam(required = false) FaultTemplate.Severity severity) {
-        List<FaultTemplate> templates = faultTemplateRepository.findFiltered(faultType, severity);
+        List<FaultTemplate> templates = faultTemplateRepository.findFiltered(faultType, severity != null ? severity.name() : null);
         return ResponseEntity.ok(ApiResponse.success(templates));
     }
 
@@ -236,19 +246,10 @@ public class SimulationController {
     @Operation(summary = "切换数据源模式", description = "在模拟模式和实时采集模式之间切换")
     public ResponseEntity<ApiResponse<String>> switchDataSource(@RequestBody DataSourceSwitchRequest request) {
         try {
-            DataCollectorService targetCollector;
-
-            switch (request.getTargetSource()) {
-                case SIMULATION:
-                    targetCollector = simulationCollector;
-                    break;
-                case REAL_DEVICE:
-                    targetCollector = remoteDeviceCollector;
-                    break;
-                default:
-                    return ResponseEntity.badRequest()
-                            .body(ApiResponse.error("不支持的数据源类型: " + request.getTargetSource()));
-            }
+            DataCollectorService targetCollector = dataCollectors.stream()
+                    .filter(c -> c.getDataSourceType() == request.getTargetSource())
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Unsupported data source type: " + request.getTargetSource()));
 
             simulationEngine.setDataCollector(targetCollector);
 
@@ -259,11 +260,11 @@ public class SimulationController {
 
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("无法切换数据源: " + e.getMessage()));
+                    .body(new ApiResponse<>(400, "无法切换数据源: " + e.getMessage(), null, null, Instant.now()));
         } catch (Exception e) {
             log.error("Failed to switch data source", e);
             return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("数据源切换失败: " + e.getMessage()));
+                    .body(new ApiResponse<>(500, "数据源切换失败: " + e.getMessage(), null, null, Instant.now()));
         }
     }
 
@@ -282,7 +283,7 @@ public class SimulationController {
                 new DataSourceInfo(DataCollectorService.DataSourceType.REAL_DEVICE,
                         "实时设备数据源",
                         "从物理工业机器人设备实时采集传感器数据，支持HTTP/MQTT通信协议",
-                        remoteDeviceCollector.isAvailable())
+                        true)
         };
 
         return ResponseEntity.ok(ApiResponse.success(sources));
