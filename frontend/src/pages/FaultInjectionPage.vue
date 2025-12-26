@@ -439,6 +439,43 @@ const builtInTemplates: FaultTemplate[] = [
   }
 ]
 
+// 内置演示运行（后端失败时的兜底）
+const builtInRuns: ScenarioRun[] = [
+  {
+    id: 'mock-run-1',
+    scenario: {
+      id: 'mock-scenario-1',
+      name: '论文演示场景'
+    },
+    mode: 'REALTIME',
+    status: 'RUNNING',
+    seed: 1,
+    rateHz: 1,
+    createdAt: new Date().toISOString()
+  }
+]
+
+// 内置演示故障注入记录存储
+const MOCK_FAULT_INJECTIONS_KEY = 'mockFaultInjections_v1'
+
+function readMockFaultInjections(): FaultInjection[] {
+  try {
+    const raw = localStorage.getItem(MOCK_FAULT_INJECTIONS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch (e) {
+    console.error('Failed to read mock fault injections:', e)
+    return []
+  }
+}
+
+function writeMockFaultInjections(injections: FaultInjection[]) {
+  try {
+    localStorage.setItem(MOCK_FAULT_INJECTIONS_KEY, JSON.stringify(injections))
+  } catch (e) {
+    console.error('Failed to write mock fault injections:', e)
+  }
+}
+
 const faultFormRef = ref<FormInstance>()
 
 const faultForm = reactive<FaultForm>({
@@ -465,17 +502,10 @@ const refreshRuns = async () => {
     // 调用API获取仿真运行列表
     scenarioRuns.value = await simApi.getScenarioRuns()
   } catch (error: any) {
-    console.error('Failed to load scenario runs:', error)
-    console.error('Response status:', error?.response?.status)
-    console.error('Response data:', error?.response?.data)
-
-    const errorMsg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
-      '获取仿真运行列表失败'
-
-    ElMessage.error(`仿真运行加载失败: ${errorMsg}`)
+    console.warn('Backend failed, falling back to built-in demo runs:', error?.response?.status || error?.message)
+    // 后端失败时使用内置演示运行
+    scenarioRuns.value = builtInRuns
+    ElMessage.warning('仿真运行后端不可用，已切换到演示运行')
   } finally {
     loading.value = false
   }
@@ -606,11 +636,50 @@ const injectFault = async () => {
       }
     }
 
-    await simApi.addFaultInjection(selectedRun.value.id, request)
-    ElMessage.success('故障注入成功')
-    loadInjectedFaults()
+    // 如果是mock run（演示模式），直接写入本地存储
+    if (selectedRun.value.id.startsWith('mock-')) {
+      const mockInjection: FaultInjection = {
+        id: `local-${Date.now()}`,
+        scenarioRun: selectedRun.value,
+        faultType: request.faultType,
+        startTs: request.startTs,
+        endTs: request.endTs,
+        params: request.params,
+        createdAt: new Date().toISOString()
+      }
+
+      const currentInjections = readMockFaultInjections()
+      currentInjections.push(mockInjection)
+      writeMockFaultInjections(currentInjections)
+
+      ElMessage.success('已在本地演示模式写入故障注入记录')
+      loadInjectedFaults()
+    } else {
+      // 正常API调用
+      await simApi.addFaultInjection(selectedRun.value.id, request)
+      ElMessage.success('故障注入成功')
+      loadInjectedFaults()
+    }
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.message || '故障注入失败')
+    // 如果API调用失败，也尝试写入本地演示记录
+    console.warn('Fault injection API failed, trying local fallback:', error?.response?.status || error?.message)
+
+    const mockInjection: FaultInjection = {
+      id: `fallback-${Date.now()}`,
+      scenarioRun: selectedRun.value,
+      faultType: request.faultType,
+      startTs: request.startTs,
+      endTs: request.endTs,
+      params: request.params,
+      createdAt: new Date().toISOString()
+    }
+
+    const currentInjections = readMockFaultInjections()
+    currentInjections.push(mockInjection)
+    writeMockFaultInjections(currentInjections)
+
+    ElMessage.warning('后端不可用，已在本地演示模式写入故障注入记录')
+    loadInjectedFaults()
   } finally {
     injecting.value = false
   }
@@ -625,17 +694,18 @@ const loadInjectedFaults = async () => {
     const response = await api.get(`/api/v1/sim/runs/${selectedRun.value.id}/faults`)
     injectedFaults.value = response.data.data || []
   } catch (error: any) {
-    console.error('Failed to load injected faults:', error)
-    console.error('Response status:', error?.response?.status)
-    console.error('Response data:', error?.response?.data)
+    console.warn('Backend failed, falling back to localStorage for injected faults:', error?.response?.status || error?.message)
 
-    const errorMsg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
-      '获取故障列表失败'
+    // 从localStorage读取本地演示记录，并过滤当前run
+    const allMockInjections = readMockFaultInjections()
+    injectedFaults.value = allMockInjections.filter(injection =>
+      injection.scenarioRun.id === selectedRun.value.id
+    )
 
-    ElMessage.error(`故障列表加载失败: ${errorMsg}`)
+    // 只在不是mock run时显示错误（避免演示模式下重复提示）
+    if (!selectedRun.value.id.startsWith('mock-')) {
+      ElMessage.warning('后端不可用，已加载本地演示记录')
+    }
   } finally {
     loadingFaults.value = false
   }

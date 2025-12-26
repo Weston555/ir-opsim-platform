@@ -365,8 +365,14 @@ const submitRobot = async () => {
   try {
     if (isEditing.value) {
       // 编辑模式：调用更新API
-      await robotApi.updateRobot(robotForm.id, robotForm)
+      const updatedRobot = await robotApi.updateRobot(robotForm.id, robotForm)
       ElMessage.success('机器人更新成功')
+
+      // 立即更新表格中的数据
+      const robotIndex = robots.value.findIndex(r => r.id === robotForm.id)
+      if (robotIndex >= 0) {
+        robots.value[robotIndex] = updatedRobot
+      }
     } else {
       // 创建模式：调用创建API
       await robotApi.createRobot(robotForm)
@@ -375,7 +381,7 @@ const submitRobot = async () => {
 
     // 操作成功后的清理工作
     showDialog.value = false  // 关闭弹窗
-    loadRobots()              // 刷新列表数据
+    loadRobots()              // 刷新列表数据（确保全局同步）
   } catch (error: any) {
     // 错误处理 - 显示后端返回的错误信息
     ElMessage.error(error?.response?.data?.message || '操作失败')
@@ -429,7 +435,15 @@ const handleStatusChange = async (robotId: string, status: string) => {
   try {
     await robotApi.updateRobotStatus(robotId, { status })
     ElMessage.success('状态更新成功')
-    loadRobots()
+
+    // 立即更新表格中的状态，避免reload造成的延迟感
+    const robotIndex = robots.value.findIndex(r => r.id === robotId)
+    if (robotIndex >= 0) {
+      robots.value[robotIndex] = { ...robots.value[robotIndex], status: status as any }
+    }
+
+    // 同时触发全局更新（确保其他页面同步）
+    // loadRobots() 会触发，但我们已经手动更新了UI，所以可以省略或延迟调用
   } catch (error) {
     ElMessage.error('状态更新失败')
   }
@@ -497,7 +511,7 @@ onMounted(() => {
 .page-header h1 {
   font-size: 28px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 8px;
 }
 

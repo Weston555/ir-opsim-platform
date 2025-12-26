@@ -237,7 +237,7 @@ INSERT INTO scenario (name, description, base_params) VALUES
 ('Normal Operation', 'Normal robot operation scenario', '{"current_nominal": 2.5, "temp_nominal": 40.0, "vibration_nominal": 0.1}');
 
 INSERT INTO fault_template (name, description, fault_type, params, duration_seconds, severity, tags, enabled, created_by) VALUES
-('电机过热', '电机温度异常升高', 'OVERHEAT', '{"amplitude": 10.0, "jointIndex": 0}', 60, 'WARN', '{"电机", "温度"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
-('振动异常', '关节振动异常', 'HIGH_VIBRATION', '{"amplitude": 2.5, "jointIndex": 2}', 90, 'WARN', '{"振动", "关节"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
-('电流尖峰', '电流突然上升', 'CURRENT_SPIKE', '{"amplitude": 3.0, "jointIndex": 1}', 30, 'CRITICAL', '{"电流", "驱动器"}', true, (SELECT id FROM app_user WHERE username = 'admin')),
-('传感器漂移', '位置传感器信号漂移', 'SENSOR_DRIFT', '{"amplitude": 0.02, "driftRate": 0.005, "jointIndex": 3}', 300, 'INFO', '{"传感器", "位置"}', true, (SELECT id FROM app_user WHERE username = 'admin'));
+('电机过热', '电机温度异常升高', 'OVERHEAT', '{"amplitude": 10.0, "jointIndex": 0}', 60, 'WARN', ARRAY['电机', '温度'], true, (SELECT id FROM app_user WHERE username = 'admin')),
+('振动异常', '关节振动异常', 'HIGH_VIBRATION', '{"amplitude": 2.5, "jointIndex": 2}', 90, 'WARN', ARRAY['振动', '关节'], true, (SELECT id FROM app_user WHERE username = 'admin')),
+('电流尖峰', '电流突然上升', 'CURRENT_SPIKE', '{"amplitude": 3.0, "jointIndex": 1}', 30, 'CRITICAL', ARRAY['电流', '驱动器'], true, (SELECT id FROM app_user WHERE username = 'admin')),
+('传感器漂移', '位置传感器信号漂移', 'SENSOR_DRIFT', '{"amplitude": 0.02, "driftRate": 0.005, "jointIndex": 3}', 300, 'INFO', ARRAY['传感器', '位置'], true, (SELECT id FROM app_user WHERE username = 'admin'));

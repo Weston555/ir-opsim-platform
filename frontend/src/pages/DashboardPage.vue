@@ -222,6 +222,12 @@ const robots = ref<Robot[]>([])
 const robotsLoading = ref(false)
 const injectingFaults = ref<Record<string, boolean>>({})
 
+// 监听robots更新事件
+const onRobotsUpdated = () => {
+  console.log('Robots updated, reloading...')
+  loadRobots()
+}
+
 // 初始化
 onMounted(async () => {
   await loadRobots()
@@ -229,6 +235,14 @@ onMounted(async () => {
 
   // 初始化WebSocket订阅
   alarmStore.initWebSocketSubscription()
+
+  // 监听robots更新事件
+  window.addEventListener('robots-updated', onRobotsUpdated)
+})
+
+// 清理
+onUnmounted(() => {
+  window.removeEventListener('robots-updated', onRobotsUpdated)
 })
 
 // 加载机器人列表
