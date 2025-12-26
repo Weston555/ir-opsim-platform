@@ -41,6 +41,18 @@ const router = createRouter({
       component: () => import('@/pages/KnowledgePage.vue'),
       meta: { requiresAuth: true, roles: ['ADMIN'] },
     },
+    {
+      path: '/fault-injection',
+      name: 'fault-injection',
+      component: () => import('@/pages/FaultInjectionPage.vue'),
+      meta: { requiresAuth: true, roles: ['ADMIN', 'OPERATOR'] },
+    },
+    {
+      path: '/robots-management',
+      name: 'robots-management',
+      component: () => import('@/pages/RobotManagementPage.vue'),
+      meta: { requiresAuth: true, roles: ['ADMIN'] },
+    },
   ]
 })
 

@@ -7,7 +7,9 @@ export const authGuard: NavigationGuard = (to, from, next) => {
 
   // 检查是否需要认证
   if (to.meta.requiresAuth !== false) {
-    if (!authStore.isAuthenticated) {
+    // 有时候 store 状态尚未同步（页面刚加载或 SPA 状态），使用 localStorage 做兼容判断
+    const isAuth = authStore.isAuthenticated || !!localStorage.getItem('token')
+    if (!isAuth) {
       // 未认证，重定向到登录页
       next({
         path: '/login',

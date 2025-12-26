@@ -1,6 +1,7 @@
 package com.example.iropsim.repository;
 
 import com.example.iropsim.entity.PoseSample;
+import com.example.iropsim.entity.ScenarioRun;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -24,4 +25,12 @@ public interface PoseSampleRepository extends JpaRepository<PoseSample, Long> {
 
     @Query("SELECT ps FROM PoseSample ps WHERE ps.robot.id = :robotId ORDER BY ps.ts DESC LIMIT 1")
     PoseSample findLatestByRobot(@Param("robotId") UUID robotId);
+
+    List<PoseSample> findByScenarioRunOrderByTs(ScenarioRun scenarioRun);
+
+    @Query("SELECT ps FROM PoseSample ps WHERE ps.robot.id = :robotId " +
+           "ORDER BY ps.ts DESC LIMIT :limit")
+    List<PoseSample> findTopByRobotIdOrderByTsDesc(
+            @Param("robotId") UUID robotId,
+            @Param("limit") Integer limit);
 }

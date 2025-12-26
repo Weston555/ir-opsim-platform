@@ -91,6 +91,11 @@
             <span>{{ alarm.count }}</span>
           </div>
 
+          <div class="info-item" v-if="isSuppressed(alarm)">
+            <label>抑制状态</label>
+            <el-tag type="warning">已抑制</el-tag>
+          </div>
+
           <div class="info-item">
             <label>首次发生</label>
             <span>{{ formatDateTime(alarm.firstSeenTs) }}</span>
@@ -110,7 +115,78 @@
         </template>
 
         <div v-if="alarm.evidence" class="evidence-content">
-          <pre>{{ JSON.stringify(alarm.evidence, null, 2) }}</pre>
+          <!-- 阈值检测器证据 -->
+          <div v-if="alarm.detector === 'THRESHOLD' && isThresholdEvidence(alarm.evidence)" class="threshold-evidence">
+            <div class="evidence-grid">
+              <div class="evidence-item">
+                <label>最新值</label>
+                <span class="value">{{ alarm.evidence.latestValue?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>上限阈值</label>
+                <span class="value">{{ alarm.evidence.upperThreshold?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>下限阈值</label>
+                <span class="value">{{ alarm.evidence.lowerThreshold?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>偏差程度</label>
+                <span class="value">{{ alarm.evidence.deviation?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>超出上限</label>
+                <span class="value">{{ alarm.evidence.exceededUpper ? '是' : '否' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>低于下限</label>
+                <span class="value">{{ alarm.evidence.belowLower ? '是' : '否' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>窗口大小</label>
+                <span class="value">{{ alarm.evidence.windowSize || 'N/A' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Z-Score检测器证据 -->
+          <div v-else-if="alarm.detector === 'Z_SCORE' && isZScoreEvidence(alarm.evidence)" class="zscore-evidence">
+            <div class="evidence-grid">
+              <div class="evidence-item">
+                <label>最新值</label>
+                <span class="value">{{ alarm.evidence.latestValue?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>平均值</label>
+                <span class="value">{{ alarm.evidence.mean?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>标准差</label>
+                <span class="value">{{ alarm.evidence.stdDev?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>Z-Score值</label>
+                <span class="value">{{ alarm.evidence.zScore?.toFixed(3) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>Z-Score阈值</label>
+                <span class="value">{{ alarm.evidence.threshold?.toFixed(1) || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>样本数量</label>
+                <span class="value">{{ alarm.evidence.sampleCount || 'N/A' }}</span>
+              </div>
+              <div class="evidence-item">
+                <label>是否异常</label>
+                <span class="value">{{ alarm.evidence.isAnomaly ? '是' : '否' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 其他证据 -->
+          <div v-else class="other-evidence">
+            <pre>{{ JSON.stringify(alarm.evidence, null, 2) }}</pre>
+          </div>
         </div>
         <div v-else class="no-evidence">
           <el-empty description="暂无检测证据" />
@@ -336,6 +412,30 @@ const getStatusText = (status: string) => {
 const formatDateTime = (timestamp: string) => {
   return new Date(timestamp).toLocaleString('zh-CN')
 }
+
+// 检查是否为阈值检测证据
+const isThresholdEvidence = (evidence: any) => {
+  return evidence && typeof evidence === 'object' &&
+         ('latestValue' in evidence || 'upperThreshold' in evidence || 'deviation' in evidence)
+}
+
+// 检查是否为Z-Score检测证据
+const isZScoreEvidence = (evidence: any) => {
+  return evidence && typeof evidence === 'object' &&
+         ('zScore' in evidence || 'mean' in evidence || 'stdDev' in evidence)
+}
+
+// 检查告警是否被抑制
+const isSuppressed = (alarm: AlarmEvent) => {
+  try {
+    if (alarm.evidence && typeof alarm.evidence === 'object' && 'suppressed' in alarm.evidence) {
+      return alarm.evidence.suppressed === true
+    }
+  } catch (error) {
+    // Ignore parsing errors
+  }
+  return false
+}
 </script>
 
 <style scoped>
@@ -400,7 +500,53 @@ const formatDateTime = (timestamp: string) => {
   color: #303133;
 }
 
-.evidence-content pre {
+.evidence-content {
+  padding: 16px;
+}
+
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.evidence-item label {
+  font-size: 12px;
+  color: #6c757d;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.evidence-item .value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #495057;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.threshold-evidence .evidence-item:nth-child(4) .value {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.zscore-evidence .evidence-item:nth-child(4) .value {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.other-evidence pre {
   background: #f6f8fa;
   padding: 16px;
   border-radius: 4px;

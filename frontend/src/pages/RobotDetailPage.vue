@@ -55,6 +55,58 @@
 
     <!-- 图表区域 -->
     <div class="charts-section">
+      <!-- 故障时间轴 -->
+      <el-card class="timeline-card" v-if="faultInjections.length > 0">
+        <template #header>
+          <div class="card-header">
+            <span>故障注入时间轴</span>
+            <el-tag type="warning">{{ faultInjections.length }} 个故障事件</el-tag>
+          </div>
+        </template>
+
+        <div class="timeline-container">
+          <div class="current-time-indicator" :style="{ left: getCurrentTimePosition() + '%' }">
+            <div class="time-label">{{ formatTime(new Date().toISOString()) }}</div>
+            <div class="time-pointer"></div>
+          </div>
+
+          <div v-for="fault in faultInjections" :key="fault.id" class="fault-timeline-item">
+            <div class="fault-label">
+              <el-tag
+                :type="getFaultTypeColor(fault.faultType)"
+                size="small"
+              >
+                {{ getFaultTypeLabel(fault.faultType) }}
+              </el-tag>
+            </div>
+            <div
+              class="fault-bar"
+              :style="getFaultBarStyle(fault)"
+              :title="`${fault.faultType} - ${formatTime(fault.startTs)} 至 ${formatTime(fault.endTs)}`"
+            ></div>
+          </div>
+        </div>
+
+        <div class="timeline-legend">
+          <div class="legend-item">
+            <div class="legend-color overheat"></div>
+            <span>过热</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color vibration"></div>
+            <span>高振动</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color current"></div>
+            <span>电流异常</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color drift"></div>
+            <span>传感器漂移</span>
+          </div>
+        </div>
+      </el-card>
+
       <!-- 电流趋势图 -->
       <el-card class="chart-card">
         <template #header>
@@ -120,6 +172,7 @@ import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { useRobotStore } from '@/stores/robot'
 import type { TelemetryData } from '@/types/robot'
+import type { Robot } from '@/types/robot'
 
 const route = useRoute()
 const robotStore = useRobotStore()
@@ -130,6 +183,7 @@ const loading = ref(false)
 const error = ref('')
 const timeRange = ref('15m')
 const telemetryData = ref<TelemetryData | null>(null)
+const faultInjections = ref<any[]>([])
 
 // 图表实例
 const currentChartRef = ref<HTMLDivElement>()
@@ -183,6 +237,7 @@ const loadData = async () => {
   try {
     await robotStore.loadRobot(robotId)
     await robotStore.loadTelemetry(robotId)
+    await loadFaultInjections()
     await updateCharts()
   } catch (err: any) {
     error.value = err.message || '加载数据失败'
@@ -333,6 +388,112 @@ const updateTemperatureChart = (data: any[]) => {
 
   temperatureChart.setOption(option, true)
 }
+
+// 加载故障注入数据
+const loadFaultInjections = async () => {
+  try {
+    // 获取所有运行的故障注入数据
+    const response = await fetch('/api/v1/sim/runs')
+    const runs = response.ok ? (await response.json()).data || [] : []
+
+    const allFaults: any[] = []
+    for (const run of runs) {
+      if (run.status === 'RUNNING' || run.status === 'STOPPED') {
+        try {
+          const faultResponse = await fetch(`/api/v1/sim/runs/${run.id}/faults`)
+          if (faultResponse.ok) {
+            const faults = (await faultResponse.json()).data || []
+            allFaults.push(...faults)
+          }
+        } catch (e) {
+          // 忽略单个运行的错误
+        }
+      }
+    }
+
+    faultInjections.value = allFaults.filter(fault =>
+      fault.startTs && fault.endTs &&
+      new Date(fault.endTs) > new Date(Date.now() - 24 * 60 * 60 * 1000) // 只显示24小时内的故障
+    )
+  } catch (error) {
+    console.error('Failed to load fault injections:', error)
+  }
+}
+
+// 时间轴相关方法
+const getCurrentTimePosition = () => {
+  if (faultInjections.value.length === 0) return 0
+
+  const now = Date.now()
+  const earliestFault = faultInjections.value.reduce((earliest, fault) =>
+    Math.min(earliest, new Date(fault.startTs).getTime()), now)
+  const latestFault = faultInjections.value.reduce((latest, fault) =>
+    Math.max(latest, new Date(fault.endTs).getTime()), now)
+
+  const startTime = Math.min(earliestFault, now - 60 * 60 * 1000) // 至少1小时前
+  const endTime = Math.max(latestFault, now + 60 * 60 * 1000)   // 至少1小时后
+
+  if (now < startTime) return 0
+  if (now > endTime) return 100
+
+  return ((now - startTime) / (endTime - startTime)) * 100
+}
+
+const getFaultBarStyle = (fault: any) => {
+  if (faultInjections.value.length === 0) return {}
+
+  const now = Date.now()
+  const earliestFault = faultInjections.value.reduce((earliest, f) =>
+    Math.min(earliest, new Date(f.startTs).getTime()), now)
+  const latestFault = faultInjections.value.reduce((latest, f) =>
+    Math.max(latest, new Date(f.endTs).getTime()), now)
+
+  const startTime = Math.min(earliestFault, now - 60 * 60 * 1000)
+  const endTime = Math.max(latestFault, now + 60 * 60 * 1000)
+
+  const faultStart = new Date(fault.startTs).getTime()
+  const faultEnd = new Date(fault.endTs).getTime()
+
+  const startPercent = Math.max(0, ((faultStart - startTime) / (endTime - startTime)) * 100)
+  const endPercent = Math.min(100, ((faultEnd - startTime) / (endTime - startTime)) * 100)
+  const widthPercent = Math.max(1, endPercent - startPercent)
+
+  return {
+    left: startPercent + '%',
+    width: widthPercent + '%',
+    backgroundColor: getFaultColor(fault.faultType)
+  }
+}
+
+const getFaultTypeColor = (faultType: string) => {
+  switch (faultType) {
+    case 'OVERHEAT': return 'danger'
+    case 'HIGH_VIBRATION': return 'warning'
+    case 'CURRENT_SPIKE': return 'danger'
+    case 'SENSOR_DRIFT': return 'info'
+    default: return 'info'
+  }
+}
+
+const getFaultTypeLabel = (faultType: string) => {
+  switch (faultType) {
+    case 'OVERHEAT': return '过热'
+    case 'HIGH_VIBRATION': return '高振动'
+    case 'CURRENT_SPIKE': return '电流异常'
+    case 'SENSOR_DRIFT': return '传感器漂移'
+    default: return faultType
+  }
+}
+
+const getFaultColor = (faultType: string) => {
+  switch (faultType) {
+    case 'OVERHEAT': return '#F56C6C'
+    case 'HIGH_VIBRATION': return '#E6A23C'
+    case 'CURRENT_SPIKE': return '#F56C6C'
+    case 'SENSOR_DRIFT': return '#909399'
+    default: return '#C0C4CC'
+  }
+}
 </script>
 
 <style scoped>
@@ -407,6 +568,124 @@ const updateTemperatureChart = (data: any[]) => {
 .charts-section {
   display: grid;
   gap: 24px;
+}
+
+.timeline-card {
+  margin-bottom: 24px;
+}
+
+.timeline-container {
+  position: relative;
+  height: 200px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+  border: 1px solid #f0f2f5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.current-time-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #409EFF;
+  z-index: 10;
+}
+
+.time-label {
+  position: absolute;
+  top: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #409EFF;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.time-pointer {
+  position: absolute;
+  top: -5px;
+  left: -4px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #409EFF;
+}
+
+.fault-timeline-item {
+  position: relative;
+  height: 32px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.fault-label {
+  width: 120px;
+  flex-shrink: 0;
+  text-align: right;
+  margin-right: 12px;
+  font-weight: 600;
+  color: #374151;
+  font-size: 13px;
+}
+
+.fault-bar {
+  height: 20px;
+  border-radius: 10px;
+  position: relative;
+  opacity: 0.9;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+
+.fault-bar:hover {
+  opacity: 1;
+  transform: scaleY(1.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.timeline-legend {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.legend-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.legend-color.overheat {
+  background: #F56C6C;
+}
+
+.legend-color.vibration {
+  background: #E6A23C;
+}
+
+.legend-color.current {
+  background: #F56C6C;
+}
+
+.legend-color.drift {
+  background: #909399;
 }
 
 .chart-card {

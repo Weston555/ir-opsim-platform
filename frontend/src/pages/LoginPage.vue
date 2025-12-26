@@ -103,9 +103,9 @@ const handleLogin = async () => {
 
     ElMessage.success('登录成功')
 
-    // 登录成功后跳转
+    // 登录成功后跳转（使用 replace 避免回退到登录页）
     const redirect = route.query.redirect as string
-    await router.push(redirect || '/')
+    await router.replace(redirect || '/')
 
   } catch (error: any) {
     console.error('Login failed:', error)

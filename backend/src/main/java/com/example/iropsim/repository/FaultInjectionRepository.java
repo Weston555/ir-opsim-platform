@@ -18,4 +18,6 @@ public interface FaultInjectionRepository extends JpaRepository<FaultInjection, 
     List<FaultInjection> findByScenarioRunIdAndTimeRange(
             @Param("scenarioRunId") UUID scenarioRunId,
             @Param("timestamp") Instant timestamp);
+
+    List<FaultInjection> findByScenarioRunId(@Param("scenarioRunId") UUID scenarioRunId);
 }

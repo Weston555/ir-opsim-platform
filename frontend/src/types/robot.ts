@@ -1,48 +1,50 @@
-// 机器人
 export interface Robot {
   id: string
   name: string
   model: string
   jointCount: number
+  description?: string
+  status: RobotStatus
   createdAt: string
+  updatedAt: string
 }
 
-// 关节样本数据
-export interface JointSample {
-  id: string
-  ts: string
-  robot: Robot
-  jointIndex: number
-  currentA: number
-  vibrationRms: number
-  temperatureC: number
-  scenarioRun?: {
-    id: string
-    name?: string
-  }
-  label?: string
+export type RobotStatus = 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'ERROR'
+
+export interface CreateRobotRequest {
+  name: string
+  model: string
+  jointCount: number
+  description?: string
 }
 
-// 位姿样本数据
-export interface PoseSample {
-  id: string
-  ts: string
-  robot: Robot
-  x: number
-  y: number
-  z: number
-  rx: number
-  ry: number
-  rz: number
-  scenarioRun?: {
-    id: string
-    name?: string
-  }
-  label?: string
+export interface UpdateRobotRequest {
+  name: string
+  model: string
+  jointCount: number
+  description?: string
 }
 
-// 遥测数据
+export interface UpdateRobotStatusRequest {
+  status: RobotStatus
+}
+
 export interface TelemetryData {
-  jointSamples: JointSample[]
-  poseSample: PoseSample
+  robotId: string
+  jointSamples: Array<{
+    jointIndex: number
+    currentA: number
+    vibrationRms: number
+    temperatureC: number
+    ts: string
+  }>
+  poseSample?: {
+    x: number
+    y: number
+    z: number
+    rx: number
+    ry: number
+    rz: number
+    ts: string
+  }
 }

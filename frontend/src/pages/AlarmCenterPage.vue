@@ -15,7 +15,13 @@
     <el-card class="filter-card">
       <el-form :inline="true" :model="filters" class="filter-form">
         <el-form-item label="状态">
-          <el-select v-model="filters.status" placeholder="全部状态" clearable>
+          <el-select
+            v-model="filters.status"
+            placeholder="全部状态"
+            clearable
+            style="width: 160px; min-width: 160px;"
+            @change="handleFilterChange"
+          >
             <el-option label="未确认" value="OPEN" />
             <el-option label="已确认" value="ACKED" />
             <el-option label="已关闭" value="CLOSED" />
@@ -23,7 +29,13 @@
         </el-form-item>
 
         <el-form-item label="级别">
-          <el-select v-model="filters.severity" placeholder="全部级别" clearable>
+          <el-select
+            v-model="filters.severity"
+            placeholder="全部级别"
+            clearable
+            style="width: 140px"
+            @change="handleFilterChange"
+          >
             <el-option label="信息" value="INFO" />
             <el-option label="警告" value="WARN" />
             <el-option label="严重" value="CRITICAL" />
@@ -31,7 +43,14 @@
         </el-form-item>
 
         <el-form-item label="机器人">
-          <el-select v-model="filters.robotId" placeholder="全部机器人" clearable filterable>
+          <el-select
+            v-model="filters.robotId"
+            placeholder="全部机器人"
+            clearable
+            filterable
+            style="width: 160px"
+            @change="handleFilterChange"
+          >
             <el-option
               v-for="robot in robots"
               :key="robot.id"

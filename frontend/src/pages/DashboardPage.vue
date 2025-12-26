@@ -3,9 +3,29 @@
     <!-- 页面头部 -->
     <div class="page-header">
       <h1>运维监控中心</h1>
-      <div class="user-info">
-        <span>欢迎，{{ authStore.user?.username }}</span>
-        <el-button type="text" @click="handleLogout">登出</el-button>
+      <div class="header-actions">
+        <el-button
+          v-if="authStore.hasRole('ADMIN')"
+          type="info"
+          size="small"
+          @click="$router.push('/robots-management')"
+        >
+          <el-icon><Setting /></el-icon>
+          机器人管理
+        </el-button>
+        <el-button
+          v-if="authStore.hasAnyRole(['ADMIN', 'OPERATOR'])"
+          type="primary"
+          size="small"
+          @click="$router.push('/fault-injection')"
+        >
+          <el-icon><Setting /></el-icon>
+          故障注入控制台
+        </el-button>
+        <div class="user-info">
+          <span>欢迎，{{ authStore.user?.username }}</span>
+          <el-button type="text" @click="handleLogout">登出</el-button>
+        </div>
       </div>
     </div>
 
@@ -90,7 +110,6 @@
             v-for="robot in robots"
             :key="robot.id"
             class="robot-card"
-            @click="goToRobotDetail(robot.id)"
           >
             <div class="robot-header">
               <h3>{{ robot.name }}</h3>
@@ -98,6 +117,24 @@
             </div>
             <div class="robot-info">
               <span>关节数: {{ robot.jointCount }}</span>
+            </div>
+            <div class="robot-actions">
+              <el-button
+                type="primary"
+                size="small"
+                @click.stop="injectFault(robot.id)"
+                :loading="injectingFaults[robot.id]"
+              >
+                <el-icon><Warning /></el-icon>
+                注入故障
+              </el-button>
+              <el-button
+                type="default"
+                size="small"
+                @click="goToRobotDetail(robot.id)"
+              >
+                查看详情
+              </el-button>
             </div>
           </el-card>
         </div>
@@ -168,6 +205,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // icons are registered globally in main.ts; no local imports needed
+import { Setting } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAlarmStore } from '@/stores/alarm'
 import api from '@/api/auth'
@@ -179,6 +217,7 @@ const alarmStore = useAlarmStore()
 // 状态
 const robots = ref<any[]>([])
 const robotsLoading = ref(false)
+const injectingFaults = ref<Record<string, boolean>>({})
 
 // 初始化
 onMounted(async () => {
@@ -206,6 +245,62 @@ const loadRobots = async () => {
 // 刷新机器人列表
 const refreshRobots = () => {
   loadRobots()
+}
+
+// 注入故障
+const injectFault = async (robotId: string) => {
+  try {
+    injectingFaults.value[robotId] = true
+
+    // 首先检查是否有正在运行的仿真
+    const simResponse = await api.get('/api/v1/sim/runs')
+    const runningRuns = simResponse.data.data.filter((run: any) => run.status === 'RUNNING')
+
+    let scenarioRunId: string
+
+    if (runningRuns.length > 0) {
+      // 使用现有的运行
+      scenarioRunId = runningRuns[0].id
+      ElMessage.info('使用现有的仿真运行')
+    } else {
+      // 创建新的仿真运行
+      const createResponse = await api.post('/api/v1/sim/runs', {
+        scenarioId: '550e8400-e29b-41d4-a716-446655440000', // 使用默认场景
+        mode: 'REALTIME',
+        rateHz: 1,
+        seed: Date.now()
+      })
+      scenarioRunId = createResponse.data.data.id
+
+      // 启动仿真
+      await api.post(`/api/v1/sim/runs/${scenarioRunId}/start`)
+      ElMessage.info('已启动新的仿真运行')
+    }
+
+    // 注入故障 - 过热故障，持续30秒
+    const faultData = {
+      faultType: 'OVERHEAT',
+      startTs: new Date().toISOString(),
+      endTs: new Date(Date.now() + 30000).toISOString(), // 30秒后结束
+      params: {
+        amplitude: 15.0, // 温度增加15°C
+        jointIndex: 0 // 关节0
+      }
+    }
+
+    await api.post(`/api/v1/sim/runs/${scenarioRunId}/faults`, faultData)
+
+    ElMessage.success('故障注入成功！请查看告警信息')
+
+    // 刷新告警数据
+    await alarmStore.loadAlarms()
+
+  } catch (error: any) {
+    console.error('Failed to inject fault:', error)
+    ElMessage.error(error?.response?.data?.message || '故障注入失败')
+  } finally {
+    injectingFaults.value[robotId] = false
+  }
 }
 
 // 跳转到机器人详情
@@ -253,56 +348,95 @@ const formatTime = (timestamp: string) => {
 }
 
 // 登出
-const handleLogout = () => {
+const handleLogout = async () => {
   authStore.logout()
+  // 使用路由跳转到登录页
+  await router.push('/login')
 }
 </script>
 
 <style scoped>
 .dashboard-page {
-  padding: 20px;
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  min-height: 100vh;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
+  padding: 24px 0;
 }
 
 .page-header h1 {
   margin: 0;
-  color: #303133;
+  color: #1f2937;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .user-info {
   display: flex;
   align-items: center;
   gap: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 8px 16px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
 }
 
 .stat-card {
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #f0f2f5;
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: #d9d9d9;
 }
 
 .stat-content {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.stat-icon {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
 .stat-info {
@@ -310,16 +444,22 @@ const handleLogout = () => {
 }
 
 .stat-number {
-  font-size: 32px;
-  font-weight: bold;
-  color: #303133;
+  font-size: 36px;
+  font-weight: 700;
+  color: #1f2937;
   line-height: 1;
+  margin-bottom: 4px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .stat-label {
   font-size: 14px;
-  color: #909399;
-  margin-top: 4px;
+  color: #6b7280;
+  font-weight: 500;
+  margin-top: 2px;
 }
 
 .main-content {
@@ -332,60 +472,99 @@ const handleLogout = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 16px;
+}
+
+.section-header span {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .robots-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
 
 .robot-card {
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 12px;
+  border: 1px solid #f0f2f5;
+  overflow: hidden;
 }
 
 .robot-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: #d9d9d9;
 }
 
 .robot-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding: 16px 16px 0 16px;
 }
 
 .robot-header h3 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 1.4;
 }
 
 .robot-info {
-  font-size: 12px;
-  color: #909399;
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 16px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.robot-info::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.robot-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px 16px;
 }
 
 .alarms-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .alarm-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
+  padding: 16px;
+  border: 1px solid #f0f2f5;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #ffffff;
 }
 
 .alarm-item:hover {
-  background-color: #f5f7fa;
-  border-color: #c0c4cc;
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateX(2px);
 }
 
 .alarm-content {
@@ -395,14 +574,22 @@ const handleLogout = () => {
 .alarm-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  margin-bottom: 4px;
+  gap: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #1f2937;
+}
+
+.alarm-title .el-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
 }
 
 .alarm-time {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
+  font-weight: 500;
 }
 
 .loading {
