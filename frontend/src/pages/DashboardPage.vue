@@ -245,8 +245,9 @@ import { simApi } from '@/api/sim'
 import { robotApi } from '@/api/robot'
 import type { Robot } from '@/types/robot'
 import api from '@/api/auth'
-import { BUILT_IN_FAULT_TEMPLATES, ensureDemoRun, appendMockFaultInjections, buildBatchFromTemplates } from '@/mock/faults'
-import { loadTemplates } from '@/mock/templateStore'
+import { ensureDemoRun } from '@/mock/simRunStore'
+import { injectFaults } from '@/mock/faultInjectionStore'
+import { getAllTemplates, onTemplatesChanged } from '@/mock/faultTemplateStore'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -275,14 +276,14 @@ onMounted(async () => {
   window.addEventListener('robots-updated', onRobotsUpdated)
 
   // 加载模板并监听更新
-  injectTemplates.value = loadTemplates()
-  window.addEventListener('fault-templates-updated', onTemplatesUpdated)
+  injectTemplates.value = getAllTemplates()
+  const offTemplates = onTemplatesChanged(onTemplatesUpdated)
 })
 
 // 清理
 onUnmounted(() => {
   window.removeEventListener('robots-updated', onRobotsUpdated)
-  window.removeEventListener('fault-templates-updated', onTemplatesUpdated)
+  if (offTemplates) offTemplates()
 })
 
 // 加载机器人列表
@@ -340,13 +341,13 @@ const getStatusColor = (status: string) => {
 // 注入故障弹窗相关
 const injectDialogVisible = ref(false)
 const injectTargetRobot = ref<any>(null)
-const injectTemplates = ref(BUILT_IN_FAULT_TEMPLATES)
+const injectTemplates = ref<any[]>([])
 const injectTemplateIds = ref<string[]>([])
 const injectGapSec = ref(5)
 
 // 监听模板更新事件
 const onTemplatesUpdated = () => {
-  injectTemplates.value = loadTemplates()
+  injectTemplates.value = getAllTemplates()
 }
 
 const openInjectDialog = (robot: any) => {
@@ -361,19 +362,14 @@ const confirmInjectFromDashboard = async () => {
   if (!robot) return
 
   const run = ensureDemoRun()
-  const selectedTemplates = injectTemplates.value.filter(t => injectTemplateIds.value.includes(t.id))
-
-  const records = buildBatchFromTemplates({
-    run,
+  const created = injectFaults({
+    runId: run.id,
     robotId: String(robot.id),
-    templates: selectedTemplates,
-    startTs: new Date().toISOString(),
-    gapSec: injectGapSec.value
+    templateIds: injectTemplateIds.value,
+    intervalSeconds: injectGapSec.value
   })
 
-  appendMockFaultInjections(records)
-
-  ElMessage.success(`已为 ${robot.name} 注入 ${records.length} 条故障（演示模式）`)
+  ElMessage.success(`已为 ${robot.name} 注入 ${created.length} 条故障（演示模式）`)
   injectDialogVisible.value = false
 
   // 跳转到控制台，并带上 runId/robotId 做过滤与展示

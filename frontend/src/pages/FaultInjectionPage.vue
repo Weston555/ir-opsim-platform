@@ -474,20 +474,22 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { simApi } from '@/api/sim'
 import api from '@/api/auth'
 import {
-  BUILT_IN_FAULT_TEMPLATES,
-  BUILT_IN_RUNS,
-  ensureDemoRun,
-  readMockFaultInjections,
-  appendMockFaultInjections,
-  buildBatchFromTemplates,
-  type FaultTemplate
-} from '@/mock/faults'
-import {
-  loadTemplates,
-  saveTemplates,
+  getAllTemplates,
   upsertTemplate,
-  deleteTemplate
-} from '@/mock/templateStore'
+  deleteTemplate,
+  onTemplatesChanged,
+  type FaultTemplate
+} from '@/mock/faultTemplateStore'
+import {
+  getAllRuns,
+  ensureDemoRun,
+  onRunsChanged
+} from '@/mock/simRunStore'
+import {
+  injectFaults,
+  listInjectionsByRun,
+  getInjectionStatus
+} from '@/mock/faultInjectionStore'
 
 interface ScenarioRun {
   id: string
@@ -532,6 +534,17 @@ const injectedFaults = ref<FaultInjection[]>([])
 const selectedRun = ref<ScenarioRun | null>(null)
 const replayingRuns = ref<Record<string, boolean>>({})
 const faultTemplates = ref<FaultTemplate[]>([])
+
+// 当前生效故障列表
+const activeInjections = computed(() => {
+  if (!selectedRun.value) return []
+  const list = listInjectionsByRun(selectedRun.value.id)
+  const now = Date.now()
+  return list.map(x => ({
+    ...x,
+    status: getInjectionStatus(x, now),
+  }))
+})
 
 // 模板管理状态
 const activeTab = ref('injection')
@@ -732,34 +745,16 @@ const injectFault = async () => {
         gapSec: faultForm.batchGapSec ?? 5
       })
 
-      // mock-run 或后端失败：直接落本地
-      if (selectedRun.value.id.startsWith('mock-')) {
-        appendMockFaultInjections(records)
-        ElMessage.success(`已批量注入 ${records.length} 条故障（演示模式）`)
-        loadInjectedFaults()
-        return
-      }
-
-      // 后端可用：逐条调用；任一失败则整体降级本地
-      try {
-        for (const r of records) {
-          await simApi.addFaultInjection(selectedRun.value.id, {
-            faultType: r.faultType,
-            startTs: r.startTs,
-            endTs: r.endTs,
-            params: r.params,
-            robotId
-          })
-        }
-        ElMessage.success(`已批量注入 ${records.length} 条故障`)
-        loadInjectedFaults()
-        return
-      } catch (e) {
-        appendMockFaultInjections(records)
-        ElMessage.warning(`后端不可用，已批量注入 ${records.length} 条故障（演示模式）`)
-        loadInjectedFaults()
-        return
-      }
+      // 使用新的store注入故障
+      const created = injectFaults({
+        runId: selectedRun.value.id,
+        robotId,
+        templateIds: faultForm.templateIds,
+        intervalSeconds: faultForm.batchGapSec ?? 5,
+      })
+      ElMessage.success(`已注入 ${created.length} 个故障`)
+      loadInjectedFaults()
+      return
     }
 
     // 否则走原本的"手动配置注入"逻辑
@@ -884,7 +879,7 @@ const loadInjectedFaults = async () => {
 
 // 模板管理函数
 const loadTemplatesForManagement = () => {
-  faultTemplates.value = loadTemplates()
+  faultTemplates.value = getAllTemplates()
 }
 
 const openTemplateDialog = (template?: FaultTemplate) => {
@@ -1149,6 +1144,21 @@ onMounted(async () => {
 
   await loadFaultTemplates()
   loadTemplatesForManagement()
+
+  // 监听模板更新
+  const offTemplates = onTemplatesChanged(() => {
+    faultTemplates.value = getAllTemplates()
+  })
+
+  // 监听runs更新
+  const offRuns = onRunsChanged(() => {
+    scenarioRuns.value = getAllRuns()
+  })
+
+  onUnmounted(() => {
+    offTemplates()
+    offRuns()
+  })
 
   const qRunId = route.query.runId ? String(route.query.runId) : ''
   if (qRunId) {

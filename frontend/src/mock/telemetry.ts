@@ -15,6 +15,7 @@ export type MockSeriesGenerator = {
   setSeed: (seed: number) => void
   updateParams: (params: Partial<MockGeneratorOptions>) => void
   setFaultEffects: (effects: FaultEffect[]) => void
+  nextValue: (timestamp?: number) => number
 }
 
 export interface MockGeneratorOptions {
@@ -191,7 +192,41 @@ export function createMockSeriesGenerator(opts: MockGeneratorOptions): MockSerie
     faultEffects.splice(0, faultEffects.length, ...effects)
   }
 
-  return { getSeries, start, stop, setSeed, updateParams, setFaultEffects }
+  const nextValue = (timestamp?: number): number => {
+    const ts = timestamp ?? Date.now()
+    const elapsed = (ts - startTime) / 1000 // seconds
+
+    // Trend term: pull towards midpoint
+    const mid = (min + max) / 2
+    const trendDelta = (mid - value) * trend
+
+    // Periodic component (sinusoidal)
+    const periodic = Math.sin(2 * Math.PI * elapsed / period) * 0.1
+
+    // Random gaussian noise
+    const noiseDelta = rng.gaussian() * noise
+
+    const baseValue = value + trendDelta + periodic + noiseDelta
+
+    // Apply fault effects
+    const finalValue = calculateFaultEffects(baseValue, ts / 1000, faultEffects, opts.metric)
+
+    value = clamp(finalValue)
+
+    const point: MockPoint = {
+      ts: new Date(ts).toISOString(),
+      value: Number(value.toFixed(4))
+    }
+
+    series.push(point)
+    if (series.length > maxPoints) {
+      series = series.slice(series.length - maxPoints)
+    }
+
+    return value
+  }
+
+  return { getSeries, start, stop, setSeed, updateParams, setFaultEffects, nextValue }
 }
 
 

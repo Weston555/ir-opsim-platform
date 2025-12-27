@@ -346,6 +346,8 @@ import type { Robot } from '@/types/robot'
 import { createMockSeriesGenerator, type MockSeriesGenerator } from '@/mock/telemetry'
 import { readMockFaultInjections } from '@/mock/faults'
 import { getRobotTelemetryMode, setRobotTelemetryMode } from '@/mock/telemetryMode'
+import { listActiveInjections } from '@/mock/faultInjectionStore'
+import { applyFaultEffects } from '@/mock/faultEffects'
 
 const route = useRoute()
 const robotStore = useRobotStore()
@@ -358,16 +360,36 @@ const timeRange = ref('15m')
 const telemetryData = ref<TelemetryData | null>(null)
 const faultInjections = ref<any[]>([])
 
+// 按机器人记忆开关
+const MODE_KEY_PREFIX = 'telemetryMode_v1:'
+function getModeKey(robotId: string) {
+  return `${MODE_KEY_PREFIX}${robotId}`
+}
+
+function loadSavedMode(robotId: string): boolean | null {
+  const v = localStorage.getItem(getModeKey(robotId))
+  if (v === 'mock') return true
+  if (v === 'real') return false
+  return null
+}
+
+function saveMode(robotId: string, useMock: boolean) {
+  localStorage.setItem(getModeKey(robotId), useMock ? 'mock' : 'real')
+}
+
 // 请求纪元 - 用于避免旧请求污染新状态
 const requestEpoch = ref(0)
 
 // mock telemetry control - 从记忆中读取初始状态
-const useMockTelemetry = ref(getRobotTelemetryMode(robotId) === 'mock')
-let mockCurrentGen: MockSeriesGenerator | null = null
-let mockVibrationGen: MockSeriesGenerator | null = null
-let mockTemperatureGen: MockSeriesGenerator | null = null
-let mockInterval: number | null = null
-let mockActivatedByError = false
+const useMockTelemetry = ref(loadSavedMode(robotId) ?? false)
+
+// 统一series数据结构
+type Point = [number, number]
+const currentSeries = ref<Point[]>([])
+const vibrationSeries = ref<Point[]>([])
+const temperatureSeries = ref<Point[]>([])
+const maxPoints = 900
+let timer: number | null = null
 
 // mock parameters for reproducibility
 const mockSeed = ref(12345)
@@ -389,6 +411,28 @@ const temperatureChartRef = ref<HTMLDivElement>()
 let currentChart: echarts.ECharts | null = null
 let vibrationChart: echarts.ECharts | null = null
 let temperatureChart: echarts.ECharts | null = null
+
+// 统一图表option
+function makeLineOption(params: { title: string; yName: string; data: Point[] }) {
+  return {
+    grid: { left: 60, right: 24, top: 40, bottom: 50 },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'time' },
+    yAxis: { type: 'value', name: params.yName },
+    series: [
+      {
+        type: 'line',
+        showSymbol: false,
+        smooth: true,
+        data: params.data,
+      },
+    ],
+  }
+}
+
+const currentOption = computed(() => makeLineOption({ title: '电流', yName: '电流(A)', data: currentSeries.value }))
+const vibrationOption = computed(() => makeLineOption({ title: '振动', yName: '振动(RMS)', data: vibrationSeries.value }))
+const temperatureOption = computed(() => makeLineOption({ title: '温度', yName: '温度(°C)', data: temperatureSeries.value }))
 
 // 计算属性
 const robot = computed(() => robotStore.currentRobot)
@@ -419,56 +463,41 @@ const temperatureValue = computed(() => {
 })
 
 // 初始化
+// ⚠️ 必须在这里就决定 useMockTelemetry，再进入任何 load()
 onMounted(async () => {
-  await loadData()
+  // 先决定模式：mock robotId（形如 mock-xxx）直接强制 mock
+  const saved = loadSavedMode(robotId)
+  useMockTelemetry.value = robotId.startsWith('mock-') ? true : (saved ?? false)
+
   initCharts()
-  robotStore.initWebSocketSubscription(robotId)
-  // init mock generators with sensible defaults
-  mockCurrentGen = createMockSeriesGenerator({
-    metric: 'current_a',
-    startValue: 2.5,
-    min: 0,
-    max: 20,
-    noise: 0.1,
-    intervalMs: 1000,
-    maxPoints: 900
-  })
-  mockVibrationGen = createMockSeriesGenerator({
-    metric: 'vibration_rms',
-    startValue: 0.1,
-    min: 0,
-    max: 5,
-    noise: 0.01,
-    intervalMs: 1000,
-    maxPoints: 900
-  })
-  mockTemperatureGen = createMockSeriesGenerator({
-    metric: 'temperature_c',
-    startValue: 40,
-    min: 20,
-    max: 90,
-    noise: 0.2,
-    intervalMs: 1000,
-    maxPoints: 900
-  })
-  // when switch toggles, start/stop mock stream
+
+  if (useMockTelemetry.value) {
+    startMock(robotId)
+    return
+  }
+
+  try {
+    await loadRealTelemetry(robotId)
+  } catch (e) {
+    // real 失败：自动切 mock，并记忆
+    useMockTelemetry.value = true
+    saveMode(robotId, true)
+    startMock(robotId)
+    ElMessage.warning('真实数据不可用，已自动切换为模拟数据')
+  }
+  // 切换模式
   watch(useMockTelemetry, (val) => {
-    // 增加请求纪元，避免旧请求污染
-    requestEpoch.value++
-
-    // 保存模式记忆
-    setRobotTelemetryMode(robotId, val ? 'mock' : 'real')
-
-    if (val) {
-      // 切到mock模式：清空错误状态，启动mock流
-      error.value = ''
-      loading.value = false
-      stopRealPolling()
-      startMockStream()
-    } else {
-      // 切到真实模式：停止mock流，启动真实请求
-      stopMockStream()
-      loadRealTelemetry()
+    saveMode(robotId, val)
+    if (val) startMock(robotId)
+    else {
+      stopMock()
+      // 切回 real 时再请求一次，失败继续自动降级
+      loadRealTelemetry(robotId).catch(() => {
+        useMockTelemetry.value = true
+        saveMode(robotId, true)
+        startMock(robotId)
+        ElMessage.warning('真实数据不可用，已自动切换为模拟数据')
+      })
     }
   })
 })
@@ -477,7 +506,7 @@ onMounted(async () => {
 onUnmounted(() => {
   robotStore.unsubscribeWebSocket(robotId)
   disposeCharts()
-  stopMockStream()
+  stopMock()
 })
 
 // 监听遥测数据变化
@@ -771,6 +800,94 @@ const updateFaultEffects = () => {
   mockCurrentGen?.setFaultEffects(activeFaults)
   mockVibrationGen?.setFaultEffects(activeFaults)
   mockTemperatureGen?.setFaultEffects(activeFaults)
+}
+
+// mock生成器（单点模式）
+const genCurrent = createMockSeriesGenerator({
+  metric: 'current',
+  startValue: 8,
+  min: 0,
+  max: 20,
+  noise: 0.3,
+  trend: 0.01,
+  intervalMs: 1000,
+  maxPoints,
+  seed: 12345,
+  period: 300
+})
+
+const genVib = createMockSeriesGenerator({
+  metric: 'vibration',
+  startValue: 0.5,
+  min: 0,
+  max: 5,
+  noise: 0.05,
+  trend: 0.0,
+  intervalMs: 1000,
+  maxPoints,
+  seed: 12346,
+  period: 300
+})
+
+const genTemp = createMockSeriesGenerator({
+  metric: 'temperature',
+  startValue: 25,
+  min: 20,
+  max: 90,
+  noise: 0.08,
+  trend: 0.005,
+  intervalMs: 1000,
+  maxPoints,
+  seed: 12347,
+  period: 300
+})
+
+// 初始化series
+function seedSeries() {
+  currentSeries.value = []
+  vibrationSeries.value = []
+  temperatureSeries.value = []
+  const start = Date.now() - 60_000
+  for (let i = 0; i < 60; i++) {
+    const ts = start + i * 1000
+    currentSeries.value.push([ts, genCurrent.nextValue(ts)])
+    vibrationSeries.value.push([ts, genVib.nextValue(ts)])
+    temperatureSeries.value.push([ts, genTemp.nextValue(ts)])
+  }
+}
+
+// 停止mock
+function stopMock() {
+  if (timer) window.clearInterval(timer)
+  timer = null
+}
+
+// 启动mock（每秒出线）
+function startMock(robotId: string) {
+  stopMock()
+  seedSeries()
+
+  timer = window.setInterval(() => {
+    const ts = Date.now()
+
+    // 1) base frame
+    const base = {
+      current: genCurrent.nextValue(ts),
+      vibration: genVib.nextValue(ts),
+      temperature: genTemp.nextValue(ts),
+    }
+
+    // 2) active faults
+    const active = listActiveInjections({ robotId, nowTs: ts })
+
+    // 3) apply effects
+    const frame = applyFaultEffects(base, active, ts)
+
+    // 4) push series
+    currentSeries.value = [...currentSeries.value.slice(-maxPoints + 1), [ts, frame.current]]
+    vibrationSeries.value = [...vibrationSeries.value.slice(-maxPoints + 1), [ts, frame.vibration]]
+    temperatureSeries.value = [...temperatureSeries.value.slice(-maxPoints + 1), [ts, frame.temperature]]
+  }, 1000)
 }
 
 // 加载故障注入数据
