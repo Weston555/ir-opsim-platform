@@ -335,7 +335,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 // icons are registered globally in main.ts; no local imports needed
@@ -344,6 +344,7 @@ import { useRobotStore } from '@/stores/robot'
 import type { TelemetryData } from '@/types/robot'
 import type { Robot } from '@/types/robot'
 import { createMockSeriesGenerator, type MockSeriesGenerator } from '@/mock/telemetry'
+import { readMockFaultInjections } from '@/mock/faults'
 
 const route = useRoute()
 const robotStore = useRobotStore()
@@ -725,8 +726,21 @@ const stopMockStream = () => {
 
 // 加载故障注入数据
 const loadFaultInjections = async () => {
+  const robotId = route.params.id as string
+
+  // 先读取本地演示故障注入记录（按robotId过滤）
+  const localInjections = readMockFaultInjections()
+    .filter(f => !f.robotId || f.robotId === robotId)
+    .slice(-200) // 限制最近200条
+
+  // 设置本地记录（演示优先）
+  faultInjections.value = localInjections.filter(fault =>
+    fault.startTs && fault.endTs &&
+    new Date(fault.endTs) > new Date(Date.now() - 24 * 60 * 60 * 1000) // 只显示24小时内的故障
+  )
+
+  // 尝试获取后端数据补充（失败不影响UI）
   try {
-    // 获取所有运行的故障注入数据
     const response = await fetch('/api/v1/sim/runs')
     const runs = response.ok ? (await response.json()).data || [] : []
 
@@ -745,12 +759,20 @@ const loadFaultInjections = async () => {
       }
     }
 
-    faultInjections.value = allFaults.filter(fault =>
+    const backendFaults = allFaults.filter(fault =>
       fault.startTs && fault.endTs &&
-      new Date(fault.endTs) > new Date(Date.now() - 24 * 60 * 60 * 1000) // 只显示24小时内的故障
+      new Date(fault.endTs) > new Date(Date.now() - 24 * 60 * 60 * 1000)
     )
+
+    // 合并本地和后端数据（去重）
+    const byId = new Map<string, any>()
+    for (const f of [...localInjections, ...backendFaults]) {
+      byId.set(`${f.scenarioRun?.id || 'unknown'}-${f.faultType}-${f.startTs}`, f)
+    }
+    faultInjections.value = Array.from(byId.values())
   } catch (error) {
-    console.error('Failed to load fault injections:', error)
+    // 静默失败，本地数据已设置
+    console.warn('Failed to load backend fault injections, using local data only:', error)
   }
 }
 
@@ -799,7 +821,7 @@ const updateMockParams = () => {
 // 重新启动mock生成器
 const restartMockGenerators = () => {
   // 停止现有生成器
-  stopMockGenerators()
+  stopMockStream()
 
   // 设置种子
   mockCurrentGen?.setSeed(mockSeed.value)
@@ -807,7 +829,7 @@ const restartMockGenerators = () => {
   mockTemperatureGen?.setSeed(mockSeed.value + 2)
 
   // 启动生成器
-  startMockGenerators()
+  startMockStream()
 }
 
 // 时间轴相关方法

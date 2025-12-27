@@ -104,12 +104,14 @@
         <el-form :model="faultForm" :rules="faultRules" ref="faultFormRef" label-width="120px">
           <el-row :gutter="20">
             <el-col :span="24">
-              <el-form-item label="故障模板" prop="templateId">
+              <el-form-item label="故障模板" prop="templateIds">
                 <el-select
-                  v-model="faultForm.templateId"
-                  placeholder="选择预设故障模板（推荐）"
+                  v-model="faultForm.templateIds"
+                  placeholder="选择预设故障模板（可多选）"
                   filterable
                   clearable
+                  multiple
+                  collapse-tags
                   style="width: 100%"
                   @change="onTemplateChange"
                 >
@@ -135,6 +137,17 @@
                     </div>
                   </el-option>
                 </el-select>
+              </el-form-item>
+
+              <el-form-item v-if="faultForm.templateIds?.length > 1" label="批量间隔(s)" prop="batchGapSec">
+                <el-input-number
+                  v-model="faultForm.batchGapSec"
+                  :min="0"
+                  :max="300"
+                  :step="1"
+                  style="width: 100%"
+                  placeholder="故障间的间隔秒数"
+                />
               </el-form-item>
             </el-col>
           </el-row>
@@ -320,11 +333,23 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+const route = useRoute()
+const router = useRouter()
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { simApi } from '@/api/sim'
 import api from '@/api/auth'
+import {
+  BUILT_IN_FAULT_TEMPLATES,
+  BUILT_IN_RUNS,
+  ensureDemoRun,
+  readMockFaultInjections,
+  appendMockFaultInjections,
+  buildBatchFromTemplates
+} from '@/mock/faults'
 
 interface ScenarioRun {
   id: string
@@ -361,7 +386,8 @@ interface FaultTemplate {
 }
 
 interface FaultForm {
-  templateId?: string
+  templateIds: string[]
+  batchGapSec: number
   faultType: string
   startTime: string
   endTime: string
@@ -379,106 +405,12 @@ const injectedFaults = ref<FaultInjection[]>([])
 const selectedRun = ref<ScenarioRun | null>(null)
 const replayingRuns = ref<Record<string, boolean>>({})
 const faultTemplates = ref<FaultTemplate[]>([])
-// 内置故障模板（当后端不可用时回退，便于论文演示）
-const builtInTemplates: FaultTemplate[] = [
-  {
-    id: 'builtin-overheat',
-    name: '过热示例',
-    description: '模拟关节过热故障',
-    faultType: 'OVERHEAT',
-    params: { amplitude: 10 },
-    durationSeconds: 60,
-    severity: 'HIGH',
-    tags: ['builtin'],
-    enabled: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'builtin-vibration',
-    name: '高振动示例',
-    description: '模拟高振动故障',
-    faultType: 'HIGH_VIBRATION',
-    params: { amplitude: 0.5 },
-    durationSeconds: 120,
-    severity: 'MEDIUM',
-    tags: ['builtin'],
-    enabled: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'builtin-current-spike',
-    name: '电流尖峰示例',
-    description: '模拟电流突增故障',
-    faultType: 'CURRENT_SPIKE',
-    params: { amplitude: 3.0 },
-    durationSeconds: 30,
-    severity: 'HIGH',
-    tags: ['builtin'],
-    enabled: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'builtin-drift',
-    name: '传感器漂移示例',
-    description: '模拟传感器线性漂移故障',
-    faultType: 'SENSOR_DRIFT',
-    params: { drift_rate: 0.001 },
-    durationSeconds: 300,
-    severity: 'LOW',
-    tags: ['builtin'],
-    enabled: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-]
-
-// 内置演示运行（后端失败时的兜底）
-const builtInRuns: ScenarioRun[] = [
-  {
-    id: 'mock-run-1',
-    scenario: {
-      id: 'mock-scenario-1',
-      name: '论文演示场景'
-    },
-    mode: 'REALTIME',
-    status: 'RUNNING',
-    seed: 1,
-    rateHz: 1,
-    createdAt: new Date().toISOString()
-  }
-]
-
-// 内置演示故障注入记录存储
-const MOCK_FAULT_INJECTIONS_KEY = 'mockFaultInjections_v1'
-
-function readMockFaultInjections(): FaultInjection[] {
-  try {
-    const raw = localStorage.getItem(MOCK_FAULT_INJECTIONS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch (e) {
-    console.error('Failed to read mock fault injections:', e)
-    return []
-  }
-}
-
-function writeMockFaultInjections(injections: FaultInjection[]) {
-  try {
-    localStorage.setItem(MOCK_FAULT_INJECTIONS_KEY, JSON.stringify(injections))
-  } catch (e) {
-    console.error('Failed to write mock fault injections:', e)
-  }
-}
 
 const faultFormRef = ref<FormInstance>()
 
 const faultForm = reactive<FaultForm>({
+  templateIds: [],
+  batchGapSec: 5,
   faultType: 'OVERHEAT',
   startTime: '',
   endTime: '',
@@ -535,29 +467,47 @@ const loadFaultTemplates = async () => {
 }
 
 // 模板选择事件处理
-const onTemplateChange = (templateId: string) => {
-  if (!templateId) {
+const onTemplateChange = (templateIds: string[]) => {
+  if (!templateIds || templateIds.length === 0) {
     // 清除模板选择，恢复手动配置
     resetFaultForm()
     return
   }
 
-  const template = faultTemplates.value.find(t => t.id === templateId)
-  if (template) {
-    // 自动填充表单
-    faultForm.faultType = template.faultType
-    faultForm.amplitude = template.params.amplitude || 1.0
-    faultForm.jointIndex = template.params.jointIndex || 0
-    faultForm.driftRate = template.params.driftRate || 0.01
+  // 单选：沿用原"自动填充"逻辑（用第一条）
+  if (templateIds.length === 1) {
+    const template = faultTemplates.value.find(t => t.id === templateIds[0])
+    if (template) {
+      // 自动填充表单
+      faultForm.faultType = template.faultType
+      const params = typeof template.params === 'string' ? JSON.parse(template.params) : template.params
+      faultForm.amplitude = params.amplitude || 1.0
+      faultForm.jointIndex = params.jointIndex || 0
+      faultForm.driftRate = params.driftRate || 0.01
 
-    // 计算结束时间
-    const startTime = new Date()
-    const endTime = new Date(startTime.getTime() + template.durationSeconds * 1000)
-    faultForm.startTime = startTime.toISOString().slice(0, 16)
-    faultForm.endTime = endTime.toISOString().slice(0, 16)
+      // 计算结束时间
+      const startTime = new Date()
+      const endTime = new Date(startTime.getTime() + template.durationSeconds * 1000)
+      faultForm.startTime = startTime.toISOString().slice(0, 16)
+      faultForm.endTime = endTime.toISOString().slice(0, 16)
 
-    ElMessage.info(`已加载故障模板: ${template.name}`)
+      ElMessage.info(`已加载故障模板: ${template.name}`)
+    }
+    return
   }
+
+  // 多选：自动给 start/end（end=最后一条结束），供 UI 显示
+  const startTime = new Date()
+  let cursor = startTime.getTime()
+  for (const id of templateIds) {
+    const template = faultTemplates.value.find(t => t.id === id)
+    if (!template) continue
+    cursor = cursor + template.durationSeconds * 1000 + faultForm.batchGapSec * 1000
+  }
+  faultForm.startTime = startTime.toISOString().slice(0, 16)
+  faultForm.endTime = new Date(cursor).toISOString().slice(0, 16)
+
+  ElMessage.info(`已选择 ${templateIds.length} 个故障模板（批量模式）`)
 }
 
 // 故障类型变更事件处理
@@ -593,6 +543,55 @@ const injectFault = async () => {
 
   injecting.value = true
   try {
+    const robotId = route.query.robotId ? String(route.query.robotId) : undefined
+    const startTs = faultForm.startTime ? new Date(faultForm.startTime).toISOString() : new Date().toISOString()
+
+    // 模板批量
+    if (faultForm.templateIds && faultForm.templateIds.length > 0) {
+      const run = selectedRun.value.id.startsWith('mock-') ? selectedRun.value : selectedRun.value
+      const templates = faultForm.templateIds
+        .map(id => faultTemplates.value.find(t => t.id === id))
+        .filter(Boolean)
+
+      const records = buildBatchFromTemplates({
+        run,
+        robotId,
+        templates,
+        startTs,
+        gapSec: faultForm.batchGapSec ?? 5
+      })
+
+      // mock-run 或后端失败：直接落本地
+      if (selectedRun.value.id.startsWith('mock-')) {
+        appendMockFaultInjections(records)
+        ElMessage.success(`已批量注入 ${records.length} 条故障（演示模式）`)
+        loadInjectedFaults()
+        return
+      }
+
+      // 后端可用：逐条调用；任一失败则整体降级本地
+      try {
+        for (const r of records) {
+          await simApi.addFaultInjection(selectedRun.value.id, {
+            faultType: r.faultType,
+            startTs: r.startTs,
+            endTs: r.endTs,
+            params: r.params,
+            robotId
+          })
+        }
+        ElMessage.success(`已批量注入 ${records.length} 条故障`)
+        loadInjectedFaults()
+        return
+      } catch (e) {
+        appendMockFaultInjections(records)
+        ElMessage.warning(`后端不可用，已批量注入 ${records.length} 条故障（演示模式）`)
+        loadInjectedFaults()
+        return
+      }
+    }
+
+    // 否则走原本的"手动配置注入"逻辑
     let request: any
 
     if (faultForm.templateId) {
@@ -641,6 +640,7 @@ const injectFault = async () => {
       const mockInjection: FaultInjection = {
         id: `local-${Date.now()}`,
         scenarioRun: selectedRun.value,
+        robotId,
         faultType: request.faultType,
         startTs: request.startTs,
         endTs: request.endTs,
@@ -648,10 +648,7 @@ const injectFault = async () => {
         createdAt: new Date().toISOString()
       }
 
-      const currentInjections = readMockFaultInjections()
-      currentInjections.push(mockInjection)
-      writeMockFaultInjections(currentInjections)
-
+      appendMockFaultInjections([mockInjection])
       ElMessage.success('已在本地演示模式写入故障注入记录')
       loadInjectedFaults()
     } else {
@@ -696,11 +693,14 @@ const loadInjectedFaults = async () => {
   } catch (error: any) {
     console.warn('Backend failed, falling back to localStorage for injected faults:', error?.response?.status || error?.message)
 
-    // 从localStorage读取本地演示记录，并过滤当前run
+    // 从localStorage读取本地演示记录，并过滤当前run/robot
+    const robotId = route.query.robotId ? String(route.query.robotId) : undefined
     const allMockInjections = readMockFaultInjections()
-    injectedFaults.value = allMockInjections.filter(injection =>
-      injection.scenarioRun.id === selectedRun.value.id
-    )
+    injectedFaults.value = allMockInjections.filter(injection => {
+      const sameRun = injection.scenarioRun?.id === selectedRun.value.id
+      const sameRobot = !robotId || injection.robotId === robotId
+      return sameRun && sameRobot
+    })
 
     // 只在不是mock run时显示错误（避免演示模式下重复提示）
     if (!selectedRun.value.id.startsWith('mock-')) {
@@ -885,9 +885,22 @@ const handleExport = async (command: any) => {
 }
 
 // 生命周期
-onMounted(() => {
-  refreshRuns()
-  loadFaultTemplates()
+onMounted(async () => {
+  // runs：后端失败就内置演示；同时确保 mock-run 写入本地 runs（供 Dashboard 复用）
+  try {
+    await refreshRuns()
+  } finally {
+    // 如果后端失败，refreshRuns 内已经 fallback；这里额外保证 demo run 存在
+    ensureDemoRun()
+  }
+
+  await loadFaultTemplates()
+
+  const qRunId = route.query.runId ? String(route.query.runId) : ''
+  if (qRunId) {
+    const found = scenarioRuns.value.find(r => r.id === qRunId)
+    if (found) selectRun(found)
+  }
 })
 </script>
 

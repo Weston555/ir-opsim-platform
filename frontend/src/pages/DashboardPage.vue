@@ -114,8 +114,11 @@
             <div class="robot-header">
               <h3>{{ robot.name }}</h3>
               <el-tag>{{ robot.model }}</el-tag>
+              <el-tag :type="getStatusType(robot.status)" effect="dark">{{ getStatusText(robot.status) }}</el-tag>
             </div>
             <div class="robot-info">
+              <span class="status-dot" :style="{ backgroundColor: getStatusColor(robot.status) }"></span>
+              <span class="robot-name">{{ robot.name }}</span>
               <span>关节数: {{ robot.jointCount }}</span>
             </div>
             <div class="robot-actions">
@@ -123,7 +126,6 @@
                 type="primary"
                 size="small"
                 @click.stop="injectFault(robot.id)"
-                :loading="injectingFaults[robot.id]"
               >
                 <el-icon><Warning /></el-icon>
                 注入故障
@@ -197,6 +199,37 @@
         </div>
       </el-card>
     </div>
+
+    <!-- 注入故障弹窗 -->
+    <el-dialog v-model="injectDialogVisible" title="为该机器人注入故障（可多选）" width="640px">
+      <el-form label-width="120px">
+        <el-form-item label="目标机器人">
+          <el-tag type="info">{{ injectTargetRobot?.name }} ({{ injectTargetRobot?.id }})</el-tag>
+        </el-form-item>
+
+        <el-form-item label="选择故障模板">
+          <el-select v-model="injectTemplateIds" multiple collapse-tags filterable style="width: 100%">
+            <el-option
+              v-for="t in injectTemplates"
+              :key="t.id"
+              :label="`${t.name} - ${t.faultType} - ${t.severity}`"
+              :value="t.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="间隔(s)">
+          <el-input-number v-model="injectGapSec" :min="0" :max="300" :step="1" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="injectDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="injectTemplateIds.length===0" @click="confirmInjectFromDashboard">
+          注入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -212,6 +245,7 @@ import { simApi } from '@/api/sim'
 import { robotApi } from '@/api/robot'
 import type { Robot } from '@/types/robot'
 import api from '@/api/auth'
+import { BUILT_IN_FAULT_TEMPLATES, ensureDemoRun, appendMockFaultInjections, buildBatchFromTemplates } from '@/mock/faults'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -266,69 +300,81 @@ const refreshRobots = () => {
   loadRobots()
 }
 
+// 状态显示函数
+const getStatusType = (status: string) => {
+  switch (status) {
+    case 'ONLINE': return 'success'
+    case 'OFFLINE': return 'info'
+    case 'MAINTENANCE': return 'warning'
+    case 'ERROR': return 'danger'
+    default: return 'info'
+  }
+}
+
+const getStatusText = (status: string) => {
+  switch (status) {
+    case 'ONLINE': return '在线'
+    case 'OFFLINE': return '离线'
+    case 'MAINTENANCE': return '维护'
+    case 'ERROR': return '故障'
+    default: return status || '未知'
+  }
+}
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'ONLINE': return '#67C23A'
+    case 'OFFLINE': return '#909399'
+    case 'MAINTENANCE': return '#E6A23C'
+    case 'ERROR': return '#F56C6C'
+    default: return '#909399'
+  }
+}
+
+// 注入故障弹窗相关
+const injectDialogVisible = ref(false)
+const injectTargetRobot = ref<any>(null)
+const injectTemplates = ref(BUILT_IN_FAULT_TEMPLATES)
+const injectTemplateIds = ref<string[]>([])
+const injectGapSec = ref(5)
+
+const openInjectDialog = (robot: any) => {
+  injectTargetRobot.value = robot
+  injectTemplateIds.value = []
+  injectGapSec.value = 5
+  injectDialogVisible.value = true
+}
+
+const confirmInjectFromDashboard = async () => {
+  const robot = injectTargetRobot.value
+  if (!robot) return
+
+  const run = ensureDemoRun()
+  const selectedTemplates = injectTemplates.value.filter(t => injectTemplateIds.value.includes(t.id))
+
+  const records = buildBatchFromTemplates({
+    run,
+    robotId: String(robot.id),
+    templates: selectedTemplates,
+    startTs: new Date().toISOString(),
+    gapSec: injectGapSec.value
+  })
+
+  appendMockFaultInjections(records)
+
+  ElMessage.success(`已为 ${robot.name} 注入 ${records.length} 条故障（演示模式）`)
+  injectDialogVisible.value = false
+
+  // 跳转到控制台，并带上 runId/robotId 做过滤与展示
+  router.push({ path: '/fault-injection', query: { runId: run.id, robotId: String(robot.id) } })
+}
+
 // 注入故障
 const injectFault = async (robotId: string) => {
-  try {
-    injectingFaults.value[robotId] = true
-
-    // 首先检查是否有正在运行的仿真
-    const simResponse = await api.get('/api/v1/sim/runs')
-    const runningRuns = simResponse.data.data.filter((run: any) => run.status === 'RUNNING')
-
-    let scenarioRunId: string
-
-    if (runningRuns.length > 0) {
-      // 使用现有的运行
-      scenarioRunId = runningRuns[0].id
-      ElMessage.info('使用现有的仿真运行')
-    } else {
-      // 获取可用场景
-      const scenarios = await simApi.getScenarios()
-      if (!scenarios.length) {
-        ElMessage.error('未找到可用场景，请先在数据库初始化或创建场景')
-        return
-      }
-
-      // 使用第一个可用场景（后续可做UI选择）
-      const scenarioId = scenarios[0].id
-
-      // 创建新的仿真运行
-      const createResponse = await api.post('/api/v1/sim/runs', {
-        scenarioId, // 使用真实的场景ID
-        mode: 'REALTIME',
-        rateHz: 1,
-        seed: Date.now()
-      })
-      scenarioRunId = createResponse.data.data.id
-
-      // 启动仿真
-      await api.post(`/api/v1/sim/runs/${scenarioRunId}/start`)
-      ElMessage.info('已启动新的仿真运行')
-    }
-
-    // 注入故障 - 过热故障，持续30秒
-    const faultData = {
-      faultType: 'OVERHEAT',
-      startTs: new Date().toISOString(),
-      endTs: new Date(Date.now() + 30000).toISOString(), // 30秒后结束
-      params: {
-        amplitude: 15.0, // 温度增加15°C
-        jointIndex: 0 // 关节0
-      }
-    }
-
-    await api.post(`/api/v1/sim/runs/${scenarioRunId}/faults`, faultData)
-
-    ElMessage.success('故障注入成功！请查看告警信息')
-
-    // 刷新告警数据
-    await alarmStore.loadAlarms()
-
-  } catch (error: any) {
-    console.error('Failed to inject fault:', error)
-    ElMessage.error(error?.response?.data?.message || '故障注入失败')
-  } finally {
-    injectingFaults.value[robotId] = false
+  // 找到对应的机器人并打开注入弹窗
+  const robot = robots.value.find(r => r.id === robotId)
+  if (robot) {
+    openInjectDialog(robot)
   }
 }
 
@@ -556,13 +602,17 @@ const handleLogout = async () => {
   gap: 8px;
 }
 
-.robot-info::before {
-  content: '';
-  width: 6px;
-  height: 6px;
+.status-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #10b981;
+  display: inline-block;
   flex-shrink: 0;
+}
+
+.robot-name {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
 }
 
 .robot-actions {
