@@ -65,7 +65,7 @@
 
           <el-table-column prop="status" label="状态" width="120">
             <template #default="scope">
-              <el-tag :type="getStatusType(scope.row.status)">
+              <el-tag :type="getStatusType(scope.row.status)" effect="dark">
                 {{ getStatusText(scope.row.status) }}
               </el-tag>
             </template>
@@ -474,7 +474,7 @@ const getStatusText = (status: string) => {
     case 'OFFLINE': return '离线'
     case 'MAINTENANCE': return '维护'
     case 'ERROR': return '故障'
-    default: return status
+    default: return status || '未知'
   }
 }
 

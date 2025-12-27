@@ -200,7 +200,15 @@ export const robotApi = {
       }
 
       // 逐个merge本地meta，返回完整的Robot对象
-      return backendRobots.map(mergeRobotWithMeta)
+      const backend = backendRobots.map(mergeRobotWithMeta)
+      const local = readMockRobots()
+
+      // 合并后端和本地mock数据（按id去重，优先后端）
+      const byId = new Map<string, Robot>()
+      for (const r of backend) byId.set(r.id, r)
+      for (const r of local) if (!byId.has(r.id)) byId.set(r.id, r)
+
+      return Array.from(byId.values())
     } catch (error: any) {
       // 后端失败时回退到localStorage的mock数据（已merge meta）
       console.warn('API failed, falling back to localStorage mock robots:', error?.response?.status || error?.message)
@@ -260,8 +268,9 @@ export const robotApi = {
           updatedAt: new Date().toISOString()
         }
 
-        // 保存到localStorage（会自动dispatch事件）
-        writeMockRobots([mockRobot])
+        // 保存到localStorage（会自动dispatch事件）- 追加到现有列表
+        const existing = readMockRobots()
+        writeMockRobots([...existing, mockRobot])
         return mockRobot
       }
 
@@ -285,9 +294,16 @@ export const robotApi = {
     } catch (error: any) {
       console.warn('Update robot failed, falling back to localStorage:', error?.response?.status || error?.message)
 
-      // 从mock robots中找到并更新
+      // 检查是否应该fallback（网络错误/401/403/5xx）
+      const status = error?.response?.status
+      const shouldFallback = !status || status === 401 || status === 403 || status >= 500
+
+      if (!shouldFallback) throw error
+
+      // 从mock robots中找到并更新，如果找不到就创建一个新的
       const mockRobots = readMockRobots()
       const robotIndex = mockRobots.findIndex(r => r.id === id)
+
       if (robotIndex >= 0) {
         const updatedRobot = {
           ...mockRobots[robotIndex],
@@ -298,19 +314,37 @@ export const robotApi = {
           updatedAt: new Date().toISOString()
         }
         mockRobots[robotIndex] = updatedRobot
-
-        // 更新meta
-        updateRobotMeta(id, {
-          description: request.description || '',
-          updatedAt: new Date().toISOString()
-        })
-
-        // 保存到localStorage
         writeMockRobots(mockRobots)
-        return updatedRobot
+      } else {
+        // 创建一个新的mock robot
+        const newRobot: Robot = {
+          id,
+          name: request.name,
+          model: request.model,
+          jointCount: request.jointCount,
+          description: request.description || '',
+          status: 'OFFLINE',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        writeMockRobots([...mockRobots, newRobot])
       }
 
-      throw error
+      // 更新meta
+      updateRobotMeta(id, {
+        description: request.description || '',
+        updatedAt: new Date().toISOString()
+      })
+
+      // 返回merge后的robot
+      return mergeRobotWithMeta({
+        id,
+        name: request.name,
+        model: request.model,
+        jointCount: request.jointCount,
+        description: request.description || '',
+        createdAt: new Date().toISOString()
+      })
     }
   },
 
@@ -356,14 +390,34 @@ export const robotApi = {
         updatedAt: new Date().toISOString()
       })
 
-      // 从mock robots中返回更新后的robot
+      // 检查是否应该fallback（网络错误/401/403/5xx）
+      const status = error?.response?.status
+      const shouldFallback = !status || status === 401 || status === 403 || status >= 500
+
+      if (!shouldFallback) throw error
+
+      // 从mock robots中返回更新后的robot，如果找不到就创建一个
       const mockRobots = readMockRobots()
       const robot = mockRobots.find(r => r.id === id)
+
       if (robot) {
         return { ...robot, status: request.status, updatedAt: new Date().toISOString() }
+      } else {
+        // 创建一个fallback robot
+        const fallbackRobot: Robot = {
+          id,
+          name: `Robot-${id.slice(0, 4)}`,
+          model: 'UNKNOWN',
+          jointCount: 6,
+          description: '',
+          status: request.status,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        // 保存到mock列表中
+        writeMockRobots([...mockRobots, fallbackRobot])
+        return fallbackRobot
       }
-
-      throw error
     }
   },
 
