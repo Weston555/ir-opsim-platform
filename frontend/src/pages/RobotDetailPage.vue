@@ -345,6 +345,7 @@ import type { TelemetryData } from '@/types/robot'
 import type { Robot } from '@/types/robot'
 import { createMockSeriesGenerator, type MockSeriesGenerator } from '@/mock/telemetry'
 import { readMockFaultInjections } from '@/mock/faults'
+import { getRobotTelemetryMode, setRobotTelemetryMode } from '@/mock/telemetryMode'
 
 const route = useRoute()
 const robotStore = useRobotStore()
@@ -356,8 +357,12 @@ const error = ref('')
 const timeRange = ref('15m')
 const telemetryData = ref<TelemetryData | null>(null)
 const faultInjections = ref<any[]>([])
-// mock telemetry control
-const useMockTelemetry = ref(false)
+
+// 请求纪元 - 用于避免旧请求污染新状态
+const requestEpoch = ref(0)
+
+// mock telemetry control - 从记忆中读取初始状态
+const useMockTelemetry = ref(getRobotTelemetryMode(robotId) === 'mock')
 let mockCurrentGen: MockSeriesGenerator | null = null
 let mockVibrationGen: MockSeriesGenerator | null = null
 let mockTemperatureGen: MockSeriesGenerator | null = null
@@ -448,8 +453,23 @@ onMounted(async () => {
   })
   // when switch toggles, start/stop mock stream
   watch(useMockTelemetry, (val) => {
-    if (val) startMockStream()
-    else stopMockStream()
+    // 增加请求纪元，避免旧请求污染
+    requestEpoch.value++
+
+    // 保存模式记忆
+    setRobotTelemetryMode(robotId, val ? 'mock' : 'real')
+
+    if (val) {
+      // 切到mock模式：清空错误状态，启动mock流
+      error.value = ''
+      loading.value = false
+      stopRealPolling()
+      startMockStream()
+    } else {
+      // 切到真实模式：停止mock流，启动真实请求
+      stopMockStream()
+      loadRealTelemetry()
+    }
   })
 })
 
@@ -699,6 +719,10 @@ const updateTemperatureChart = (data: any[]) => {
 // Mock stream control
 const startMockStream = () => {
   if (mockInterval !== null) return
+
+  // 更新故障效果到生成器
+  updateFaultEffects()
+
   mockCurrentGen?.start()
   mockVibrationGen?.start()
   mockTemperatureGen?.start()
@@ -722,6 +746,31 @@ const stopMockStream = () => {
   mockVibrationGen?.stop()
   mockTemperatureGen?.stop()
   mockActivatedByError = false
+}
+
+// 更新故障效果到mock生成器
+const updateFaultEffects = () => {
+  const now = Date.now() / 1000 // 当前时间戳（秒）
+
+  // 从本地故障注入记录中提取当前活跃的故障
+  const activeFaults = faultInjections.value
+    .filter(fault => {
+      const startTs = new Date(fault.startTs).getTime() / 1000
+      const endTs = new Date(fault.endTs).getTime() / 1000
+      return now >= startTs && now <= endTs
+    })
+    .map(fault => ({
+      faultType: fault.faultType,
+      startTs: new Date(fault.startTs).getTime() / 1000,
+      endTs: new Date(fault.endTs).getTime() / 1000,
+      params: fault.params || {},
+      severity: fault.severity || 'MEDIUM'
+    }))
+
+  // 应用到各个生成器
+  mockCurrentGen?.setFaultEffects(activeFaults)
+  mockVibrationGen?.setFaultEffects(activeFaults)
+  mockTemperatureGen?.setFaultEffects(activeFaults)
 }
 
 // 加载故障注入数据
@@ -773,6 +822,11 @@ const loadFaultInjections = async () => {
   } catch (error) {
     // 静默失败，本地数据已设置
     console.warn('Failed to load backend fault injections, using local data only:', error)
+  }
+
+  // 无论如何都要更新故障效果到mock生成器
+  if (useMockTelemetry.value) {
+    updateFaultEffects()
   }
 }
 

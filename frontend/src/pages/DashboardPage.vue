@@ -246,6 +246,7 @@ import { robotApi } from '@/api/robot'
 import type { Robot } from '@/types/robot'
 import api from '@/api/auth'
 import { BUILT_IN_FAULT_TEMPLATES, ensureDemoRun, appendMockFaultInjections, buildBatchFromTemplates } from '@/mock/faults'
+import { loadTemplates } from '@/mock/templateStore'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -272,11 +273,16 @@ onMounted(async () => {
 
   // 监听robots更新事件
   window.addEventListener('robots-updated', onRobotsUpdated)
+
+  // 加载模板并监听更新
+  injectTemplates.value = loadTemplates()
+  window.addEventListener('fault-templates-updated', onTemplatesUpdated)
 })
 
 // 清理
 onUnmounted(() => {
   window.removeEventListener('robots-updated', onRobotsUpdated)
+  window.removeEventListener('fault-templates-updated', onTemplatesUpdated)
 })
 
 // 加载机器人列表
@@ -337,6 +343,11 @@ const injectTargetRobot = ref<any>(null)
 const injectTemplates = ref(BUILT_IN_FAULT_TEMPLATES)
 const injectTemplateIds = ref<string[]>([])
 const injectGapSec = ref(5)
+
+// 监听模板更新事件
+const onTemplatesUpdated = () => {
+  injectTemplates.value = loadTemplates()
+}
 
 const openInjectDialog = (robot: any) => {
   injectTargetRobot.value = robot

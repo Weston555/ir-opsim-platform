@@ -1,11 +1,20 @@
 export type MockPoint = { ts: string; value: number }
 
+export interface FaultEffect {
+  faultType: string
+  startTs: number
+  endTs: number
+  params: any
+  severity: string
+}
+
 export type MockSeriesGenerator = {
   getSeries: () => MockPoint[]
   start: () => void
   stop: () => void
   setSeed: (seed: number) => void
   updateParams: (params: Partial<MockGeneratorOptions>) => void
+  setFaultEffects: (effects: FaultEffect[]) => void
 }
 
 export interface MockGeneratorOptions {
@@ -19,6 +28,7 @@ export interface MockGeneratorOptions {
   maxPoints: number
   seed?: number
   period?: number // 周期性（秒）
+  faultEffects?: FaultEffect[] // 当前活跃的故障效果
 }
 
 // Simple seeded random number generator (mulberry32)
@@ -43,10 +53,67 @@ class SeededRandom {
   }
 }
 
+// 计算故障效果叠加
+function calculateFaultEffects(
+  baseValue: number,
+  currentTime: number,
+  faultEffects: FaultEffect[],
+  metric: string
+): number {
+  let effectValue = baseValue
+
+  for (const effect of faultEffects) {
+    if (currentTime < effect.startTs || currentTime > effect.endTs) {
+      continue // 故障不在活跃期
+    }
+
+    const faultProgress = (currentTime - effect.startTs) / (effect.endTs - effect.startTs)
+    const amplitude = effect.params.amplitude || 0
+
+    switch (effect.faultType) {
+      case 'OVERHEAT':
+        if (metric === 'temperature') {
+          // 线性升温到峰值，然后保持
+          const tempIncrease = amplitude * Math.min(faultProgress * 2, 1)
+          effectValue += tempIncrease
+        } else if (metric === 'current') {
+          // 温度升高导致电流轻微增加
+          effectValue += amplitude * 0.1 * Math.min(faultProgress * 2, 1)
+        }
+        break
+
+      case 'HIGH_VIBRATION':
+        if (metric === 'vibration') {
+          effectValue += amplitude
+        }
+        break
+
+      case 'CURRENT_SPIKE':
+        if (metric === 'current') {
+          // 尖峰形状：中间最大
+          const spikeShape = Math.sin(faultProgress * Math.PI)
+          effectValue += amplitude * spikeShape
+        }
+        break
+
+      case 'SENSOR_DRIFT':
+        if (metric === 'temperature') {
+          // 线性漂移
+          const driftRate = effect.params.drift_rate || 0.001
+          const driftAmount = driftRate * (currentTime - effect.startTs)
+          effectValue += driftAmount
+        }
+        break
+    }
+  }
+
+  return effectValue
+}
+
 export function createMockSeriesGenerator(opts: MockGeneratorOptions): MockSeriesGenerator {
   const {
     startValue, min, max, noise, trend, intervalMs, maxPoints,
-    seed = Date.now(), period = 300 // 5 minutes default period
+    seed = Date.now(), period = 300, faultEffects = [] // 5 minutes default period
   } = opts
 
   let series: MockPoint[] = []
@@ -71,8 +138,12 @@ export function createMockSeriesGenerator(opts: MockGeneratorOptions): MockSerie
     // Random gaussian noise
     const noiseDelta = rng.gaussian() * noise
 
-    const delta = trendDelta + periodic + noiseDelta
-    value = clamp(value + delta)
+    const baseValue = value + trendDelta + periodic + noiseDelta
+
+    // Apply fault effects
+    const finalValue = calculateFaultEffects(baseValue, now / 1000, faultEffects, opts.metric)
+
+    value = clamp(finalValue)
 
     const point: MockPoint = {
       ts: new Date(now).toISOString(),
@@ -116,7 +187,11 @@ export function createMockSeriesGenerator(opts: MockGeneratorOptions): MockSerie
     Object.assign(opts, params)
   }
 
-  return { getSeries, start, stop, setSeed, updateParams }
+  const setFaultEffects = (effects: FaultEffect[]) => {
+    faultEffects.splice(0, faultEffects.length, ...effects)
+  }
+
+  return { getSeries, start, stop, setSeed, updateParams, setFaultEffects }
 }
 
 

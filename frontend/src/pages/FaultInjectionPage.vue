@@ -6,6 +6,9 @@
     </div>
 
     <div class="content">
+      <el-tabs v-model="activeTab">
+        <!-- 故障注入标签页 -->
+        <el-tab-pane label="故障注入" name="injection">
       <!-- 仿真运行选择 -->
       <el-card class="scenario-card">
         <template #header>
@@ -327,12 +330,140 @@
           </el-table-column>
         </el-table>
       </el-card>
+        </el-tab-pane>
+
+        <!-- 模板管理标签页 -->
+        <el-tab-pane label="模板管理" name="templates">
+          <el-card>
+            <template #header>
+              <div class="card-header">
+                <span>故障模板管理</span>
+                <el-button type="primary" @click="openTemplateDialog()">新增模板</el-button>
+              </div>
+            </template>
+
+            <el-table :data="faultTemplates" style="width: 100%">
+              <el-table-column prop="name" label="模板名称" width="150"></el-table-column>
+              <el-table-column prop="faultType" label="故障类型" width="120">
+                <template #default="scope">
+                  <el-tag :type="getFaultTypeColor(scope.row.faultType)">
+                    {{ getFaultTypeLabel(scope.row.faultType) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="severity" label="严重程度" width="100">
+                <template #default="scope">
+                  <el-tag :type="getSeverityType(scope.row.severity)">
+                    {{ scope.row.severity }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="durationSeconds" label="持续时间" width="100">
+                <template #default="scope">
+                  {{ scope.row.durationSeconds }}s
+                </template>
+              </el-table-column>
+              <el-table-column prop="enabled" label="启用状态" width="100">
+                <template #default="scope">
+                  <el-tag :type="scope.row.enabled ? 'success' : 'info'">
+                    {{ scope.row.enabled ? '启用' : '禁用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="创建时间" width="180">
+                <template #default="scope">
+                  {{ formatDate(scope.row.createdAt) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150">
+                <template #default="scope">
+                  <el-button type="primary" size="small" @click="openTemplateDialog(scope.row)">编辑</el-button>
+                  <el-button type="danger" size="small" @click="deleteTemplateById(scope.row.id)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+        </el-tab-pane>
+      </el-tabs>
     </div>
+
+    <!-- 模板编辑弹窗 -->
+    <el-dialog
+      v-model="templateDialogVisible"
+      :title="editingTemplateId ? '编辑模板' : '新增模板'"
+      width="600px"
+    >
+      <el-form
+        ref="templateFormRef"
+        :model="templateForm"
+        :rules="templateRules"
+        label-width="120px"
+      >
+        <el-form-item label="模板名称" prop="name">
+          <el-input v-model="templateForm.name" placeholder="输入模板名称" />
+        </el-form-item>
+
+        <el-form-item label="故障类型" prop="faultType">
+          <el-select v-model="templateForm.faultType" placeholder="选择故障类型" style="width: 100%">
+            <el-option label="过热" value="OVERHEAT"></el-option>
+            <el-option label="高振动" value="HIGH_VIBRATION"></el-option>
+            <el-option label="电流尖峰" value="CURRENT_SPIKE"></el-option>
+            <el-option label="传感器漂移" value="SENSOR_DRIFT"></el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="严重程度" prop="severity">
+          <el-select v-model="templateForm.severity" placeholder="选择严重程度" style="width: 100%">
+            <el-option label="低" value="LOW"></el-option>
+            <el-option label="中" value="MEDIUM"></el-option>
+            <el-option label="高" value="HIGH"></el-option>
+            <el-option label="严重" value="CRITICAL"></el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="持续时间(s)" prop="durationSeconds">
+          <el-input-number
+            v-model="templateForm.durationSeconds"
+            :min="1"
+            :max="3600"
+            style="width: 100%"
+          />
+        </el-form-item>
+
+        <el-form-item label="参数配置" prop="params">
+          <el-input
+            v-model="templateParamsJson"
+            type="textarea"
+            :rows="4"
+            placeholder='输入JSON格式的参数，例如：{"amplitude": 10.0}'
+          />
+          <div class="form-tip">参数需要是有效的JSON格式</div>
+        </el-form-item>
+
+        <el-form-item label="描述">
+          <el-input
+            v-model="templateForm.description"
+            type="textarea"
+            :rows="2"
+            placeholder="输入模板描述"
+          />
+        </el-form-item>
+
+        <el-form-item label="启用状态">
+          <el-switch v-model="templateForm.enabled" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="templateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTemplate">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
@@ -348,8 +479,15 @@ import {
   ensureDemoRun,
   readMockFaultInjections,
   appendMockFaultInjections,
-  buildBatchFromTemplates
+  buildBatchFromTemplates,
+  type FaultTemplate
 } from '@/mock/faults'
+import {
+  loadTemplates,
+  saveTemplates,
+  upsertTemplate,
+  deleteTemplate
+} from '@/mock/templateStore'
 
 interface ScenarioRun {
   id: string
@@ -373,17 +511,6 @@ interface FaultInjection {
   createdAt: string
 }
 
-interface FaultTemplate {
-  id: string
-  name: string
-  description: string
-  faultType: string
-  params: Record<string, any>
-  durationSeconds: number
-  severity: string
-  tags: string[]
-  enabled: boolean
-}
 
 interface FaultForm {
   templateIds: string[]
@@ -406,7 +533,23 @@ const selectedRun = ref<ScenarioRun | null>(null)
 const replayingRuns = ref<Record<string, boolean>>({})
 const faultTemplates = ref<FaultTemplate[]>([])
 
+// 模板管理状态
+const activeTab = ref('injection')
+const templateDialogVisible = ref(false)
+const templateForm = reactive<Partial<FaultTemplate>>({
+  name: '',
+  description: '',
+  faultType: 'OVERHEAT',
+  params: { amplitude: 1.0 },
+  durationSeconds: 60,
+  severity: 'MEDIUM',
+  tags: [],
+  enabled: true
+})
+const editingTemplateId = ref<string | null>(null)
+
 const faultFormRef = ref<FormInstance>()
+const templateFormRef = ref<FormInstance>()
 
 const faultForm = reactive<FaultForm>({
   templateIds: [],
@@ -420,12 +563,38 @@ const faultForm = reactive<FaultForm>({
 })
 
 const faultRules = {
-  templateId: [{ required: false }],
+  templateIds: [{ required: true, message: '请至少选择一个模板', trigger: 'change' }],
   faultType: [{ required: true, message: '请选择故障类型', trigger: 'change' }],
   startTime: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
   endTime: [{ required: true, message: '请选择结束时间', trigger: 'change' }],
   amplitude: [{ required: true, message: '请输入幅值', trigger: 'blur' }]
 }
+
+const templateRules = {
+  name: [{ required: true, message: '请输入模板名称', trigger: 'blur' }],
+  faultType: [{ required: true, message: '请选择故障类型', trigger: 'change' }],
+  severity: [{ required: true, message: '请选择严重程度', trigger: 'change' }],
+  durationSeconds: [{ required: true, message: '请输入持续时间', trigger: 'blur' }],
+  params: [{ required: true, message: '请输入参数配置', trigger: 'blur' }]
+}
+
+// 模板参数JSON转换
+const templateParamsJson = computed({
+  get: () => {
+    try {
+      return JSON.stringify(templateForm.params, null, 2)
+    } catch {
+      return '{}'
+    }
+  },
+  set: (value: string) => {
+    try {
+      templateForm.params = JSON.parse(value)
+    } catch {
+      templateForm.params = {}
+    }
+  }
+})
 
 // 方法
 const refreshRuns = async () => {
@@ -446,23 +615,25 @@ const refreshRuns = async () => {
 // 加载故障模板
 const loadFaultTemplates = async () => {
   try {
-    faultTemplates.value = await simApi.getFaultTemplates()
+    // 先尝试从后端加载
+    const backendTemplates = await simApi.getFaultTemplates()
+    if (backendTemplates && backendTemplates.length > 0) {
+      faultTemplates.value = backendTemplates
+      // 同步到本地store
+      saveTemplates(backendTemplates)
+    } else {
+      throw new Error('No templates from backend')
+    }
   } catch (error: any) {
-    // 输出详细错误信息到控制台
-    console.error('Failed to load fault templates:', error)
-    console.error('Response status:', error?.response?.status)
-    console.error('Response data:', error?.response?.data)
+    console.warn('Backend templates failed, using local templates:', error?.response?.status || error?.message)
 
-    // 显示具体的错误信息
-    const errorMsg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
-      '加载故障模板失败'
+    // 使用本地模板store
+    const localTemplates = loadTemplates()
+    faultTemplates.value = localTemplates
 
-    ElMessage.error(`故障模板加载失败: ${errorMsg}，已回退至内置模板`)
-    // 回退到内置模板，确保页面可用（论文演示兜底）
-    faultTemplates.value = builtInTemplates
+    if (localTemplates.length === 0) {
+      ElMessage.warning('模板加载失败，已初始化默认模板')
+    }
   }
 }
 
@@ -711,6 +882,78 @@ const loadInjectedFaults = async () => {
   }
 }
 
+// 模板管理函数
+const loadTemplatesForManagement = () => {
+  faultTemplates.value = loadTemplates()
+}
+
+const openTemplateDialog = (template?: FaultTemplate) => {
+  if (template) {
+    editingTemplateId.value = template.id
+    Object.assign(templateForm, {
+      ...template,
+      params: typeof template.params === 'string' ? JSON.parse(template.params) : template.params
+    })
+  } else {
+    editingTemplateId.value = null
+    Object.assign(templateForm, {
+      name: '',
+      description: '',
+      faultType: 'OVERHEAT',
+      params: { amplitude: 1.0 },
+      durationSeconds: 60,
+      severity: 'MEDIUM',
+      tags: [],
+      enabled: true
+    })
+  }
+  templateDialogVisible.value = true
+}
+
+const saveTemplate = async () => {
+  if (!templateFormRef.value) return
+
+  try {
+    await templateFormRef.value.validate()
+
+    const template: FaultTemplate = {
+      id: editingTemplateId.value || `template-${Date.now()}`,
+      name: templateForm.name!,
+      description: templateForm.description || '',
+      faultType: templateForm.faultType!,
+      params: templateForm.params!,
+      durationSeconds: templateForm.durationSeconds!,
+      severity: templateForm.severity!,
+      tags: templateForm.tags || [],
+      enabled: templateForm.enabled ?? true
+    }
+
+    upsertTemplate(template)
+    loadTemplatesForManagement()
+
+    ElMessage.success(editingTemplateId.value ? '模板更新成功' : '模板创建成功')
+    templateDialogVisible.value = false
+
+    // 通知其他页面更新
+    window.dispatchEvent(new Event('fault-templates-updated'))
+  } catch (error) {
+    ElMessage.error('保存失败')
+  }
+}
+
+const deleteTemplateById = (id: string) => {
+  ElMessageBox.confirm('确定删除此模板？', '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    deleteTemplate(id)
+    loadTemplatesForManagement()
+    ElMessage.success('模板删除成功')
+    window.dispatchEvent(new Event('fault-templates-updated'))
+  })
+}
+
 const getStatusType = (status: string) => {
   switch (status) {
     case 'RUNNING': return 'success'
@@ -727,6 +970,16 @@ const getFaultTypeColor = (faultType: string) => {
     case 'CURRENT_SPIKE': return 'danger'
     case 'SENSOR_DRIFT': return 'info'
     default: return ''
+  }
+}
+
+const getSeverityType = (severity: string) => {
+  switch (severity) {
+    case 'LOW': return 'info'
+    case 'MEDIUM': return 'warning'
+    case 'HIGH': return 'danger'
+    case 'CRITICAL': return 'danger'
+    default: return 'info'
   }
 }
 
@@ -895,6 +1148,7 @@ onMounted(async () => {
   }
 
   await loadFaultTemplates()
+  loadTemplatesForManagement()
 
   const qRunId = route.query.runId ? String(route.query.runId) : ''
   if (qRunId) {
