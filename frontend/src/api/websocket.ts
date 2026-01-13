@@ -1,5 +1,6 @@
 import SockJS from 'sockjs-client'
-import { Client, IMessage } from 'stompjs'
+import { Client } from 'stompjs'
+import type { Message } from 'stompjs'
 import { useAuthStore } from '@/stores/auth'
 
 class WebSocketService {
@@ -25,38 +26,28 @@ class WebSocketService {
       const socket = new SockJS(`${wsUrl}/ws`)
       this.stompClient = new Client({
         webSocketFactory: () => socket,
-        connectHeaders: {
-          Authorization: authStore.token ? `Bearer ${authStore.token}` : '',
+        debug: (...args: string[]) => {
+          console.log('WebSocket Debug:', ...args)
         },
-        debug: (str) => {
-          console.log('WebSocket Debug:', str)
-        },
-        reconnectDelay: this.reconnectDelay,
-        heartbeatIncoming: 4000,
-        heartbeatOutgoing: 4000,
       })
 
-      this.stompClient.onConnect = () => {
-        console.log('WebSocket connected')
-        this.connected = true
-        this.reconnectAttempts = 0
-
-        // 重新订阅所有主题
-        this.resubscribeAll()
-      }
-
-      this.stompClient.onDisconnect = () => {
-        console.log('WebSocket disconnected')
-        this.connected = false
-      }
-
-      this.stompClient.onStompError = (frame) => {
-        console.error('WebSocket error:', frame.headers['message'])
-        console.error('Details:', frame.body)
-        this.attemptReconnect()
-      }
-
-      this.stompClient.activate()
+      this.stompClient.connect(
+        {
+          Authorization: authStore.token ? `Bearer ${authStore.token}` : '',
+        },
+        (frame?: any) => {
+          console.log('WebSocket connected')
+          this.connected = true
+          this.reconnectAttempts = 0
+          // 重新订阅所有主题
+          this.resubscribeAll()
+        },
+        (error: any) => {
+          console.error('WebSocket error:', error)
+          this.connected = false
+          this.attemptReconnect()
+        }
+      )
     } catch (error) {
       console.error('WebSocket connection failed:', error)
       this.attemptReconnect()
@@ -86,7 +77,7 @@ class WebSocketService {
       return
     }
 
-    const subscription = this.stompClient.subscribe(destination, (message: IMessage) => {
+    const subscription = this.stompClient.subscribe(destination, (message: Message) => {
       try {
         const body = JSON.parse(message.body)
         callback(body)
@@ -119,19 +110,21 @@ class WebSocketService {
       return
     }
 
-    this.stompClient.publish({
-      destination,
-      body: JSON.stringify(body),
-    })
+    this.stompClient.send(destination, {}, JSON.stringify(body))
   }
 
   // 断开连接
   disconnect(): void {
     if (this.stompClient) {
-      this.stompClient.deactivate()
+      this.stompClient.disconnect(() => {
+        console.log('WebSocket disconnected')
+        this.connected = false
+        this.subscriptions.clear()
+      })
+    } else {
+      this.connected = false
+      this.subscriptions.clear()
     }
-    this.connected = false
-    this.subscriptions.clear()
   }
 
   // 获取连接状态

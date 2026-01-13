@@ -12,8 +12,8 @@ export const useRobotStore = defineStore('robot', () => {
   const loading = ref(false)
 
   // 计算属性
-  const robotCount = computed(() => robots.length)
-  const hasRobots = computed(() => robots.length > 0)
+  const robotCount = computed(() => robots.value.length)
+  const hasRobots = computed(() => robots.value.length > 0)
 
   // 初始化WebSocket订阅
   function initWebSocketSubscription(robotId: string) {

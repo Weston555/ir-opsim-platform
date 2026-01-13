@@ -383,6 +383,15 @@ const requestEpoch = ref(0)
 // mock telemetry control - 从记忆中读取初始状态
 const useMockTelemetry = ref(loadSavedMode(robotId) ?? false)
 
+// 错误时自动激活mock模式
+let mockActivatedByError = false
+
+// mock生成器实例
+let mockCurrentGen: MockSeriesGenerator | null = null
+let mockVibrationGen: MockSeriesGenerator | null = null
+let mockTemperatureGen: MockSeriesGenerator | null = null
+let mockInterval: number | null = null
+
 // 统一series数据结构
 type Point = [number, number]
 const currentSeries = ref<Point[]>([])
@@ -860,12 +869,65 @@ function seedSeries() {
 function stopMock() {
   if (timer) window.clearInterval(timer)
   timer = null
+  stopMockStream()
+}
+
+// 加载真实遥测数据
+async function loadRealTelemetry(robotId: string) {
+  try {
+    await robotStore.loadRobot(robotId)
+    await robotStore.loadTelemetry(robotId)
+    await loadFaultInjections()
+    await updateCharts()
+  } catch (error) {
+    throw error
+  }
 }
 
 // 启动mock（每秒出线）
 function startMock(robotId: string) {
   stopMock()
   seedSeries()
+
+  // 初始化mock生成器
+  mockCurrentGen = createMockSeriesGenerator({
+    metric: 'current',
+    startValue: 8,
+    min: 0,
+    max: 20,
+    noise: 0.3,
+    trend: 0.01,
+    intervalMs: 1000,
+    maxPoints,
+    seed: mockSeed.value,
+    period: mockPeriod.value
+  })
+
+  mockVibrationGen = createMockSeriesGenerator({
+    metric: 'vibration',
+    startValue: 0.5,
+    min: 0,
+    max: 5,
+    noise: 0.05,
+    trend: 0.0,
+    intervalMs: 1000,
+    maxPoints,
+    seed: mockSeed.value + 1,
+    period: mockPeriod.value
+  })
+
+  mockTemperatureGen = createMockSeriesGenerator({
+    metric: 'temperature',
+    startValue: 25,
+    min: 20,
+    max: 90,
+    noise: 0.08,
+    trend: 0.005,
+    intervalMs: 1000,
+    maxPoints,
+    seed: mockSeed.value + 2,
+    period: mockPeriod.value
+  })
 
   timer = window.setInterval(() => {
     const ts = Date.now()
@@ -1001,6 +1063,16 @@ const restartMockGenerators = () => {
 
   // 启动生成器
   startMockStream()
+}
+
+// 时间格式化函数
+const formatTime = (isoString: string) => {
+  return new Date(isoString).toLocaleTimeString('zh-CN', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
 // 时间轴相关方法

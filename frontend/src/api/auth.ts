@@ -42,16 +42,40 @@ api.interceptors.response.use(
 )
 
 export const authApi = {
-  // 登录
+  // 登录 - 模拟登录，无论输入什么都成功
   async login(loginRequest: LoginRequest): Promise<LoginResponse> {
-    const response = await api.post('/api/v1/auth/login', loginRequest)
-    return response.data.data
+    // 模拟API延迟
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    // 生成模拟的JWT token (这是一个示例token，实际项目中应该从后端获取)
+    const mockToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+
+    // 返回模拟的登录响应
+    return {
+      token: mockToken,
+      type: 'Bearer',
+      id: '1',
+      username: loginRequest.username || 'admin',
+      email: `${loginRequest.username || 'admin'}@iropsim.com`,
+      roles: ['ROLE_ADMIN', 'ROLE_OPERATOR']
+    }
   },
 
-  // 获取当前用户信息
+  // 获取当前用户信息 - 模拟数据
   async getCurrentUser(): Promise<UserInfo> {
-    const response = await api.get('/api/v1/auth/me')
-    return response.data.data
+    // 从localStorage获取已保存的用户信息
+    const savedUser = localStorage.getItem('user')
+    if (savedUser) {
+      return JSON.parse(savedUser)
+    }
+
+    // 如果没有保存的用户信息，返回默认管理员用户
+    return {
+      id: '1',
+      username: 'admin',
+      email: 'admin@iropsim.com',
+      roles: ['ROLE_ADMIN', 'ROLE_OPERATOR']
+    }
   },
 
   // 登出

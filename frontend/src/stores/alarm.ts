@@ -43,8 +43,10 @@ export const useAlarmStore = defineStore('alarm', () => {
     try {
       const result = await alarmApi.getAlarms(query)
       alarms.value = result.content || result // 兼容分页和非分页响应
+      return result
     } catch (error) {
       console.error('Failed to load alarms:', error)
+      return null
     } finally {
       loading.value = false
     }

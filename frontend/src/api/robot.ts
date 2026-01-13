@@ -375,7 +375,7 @@ export const robotApi = {
     try {
       // 后端可能不持久化状态，但我们仍然写入meta保证UI一致性
       updateRobotMeta(id, {
-        status: request.status,
+        status: request.status as RobotStatus,
         updatedAt: new Date().toISOString()
       })
 
@@ -386,7 +386,7 @@ export const robotApi = {
 
       // 即使后端失败，也要写入meta保证UI更新
       updateRobotMeta(id, {
-        status: request.status,
+        status: request.status as RobotStatus,
         updatedAt: new Date().toISOString()
       })
 
@@ -401,7 +401,7 @@ export const robotApi = {
       const robot = mockRobots.find(r => r.id === id)
 
       if (robot) {
-        return { ...robot, status: request.status, updatedAt: new Date().toISOString() }
+        return { ...robot, status: request.status as RobotStatus, updatedAt: new Date().toISOString() }
       } else {
         // 创建一个fallback robot
         const fallbackRobot: Robot = {
@@ -410,7 +410,7 @@ export const robotApi = {
           model: 'UNKNOWN',
           jointCount: 6,
           description: '',
-          status: request.status,
+          status: request.status as RobotStatus,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         }

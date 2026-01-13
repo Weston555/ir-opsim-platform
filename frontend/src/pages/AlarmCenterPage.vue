@@ -285,7 +285,11 @@ const loadAlarms = async () => {
     }
 
     const result = await alarmStore.loadAlarms(query)
-    totalAlarms.value = result.totalElements || result.length
+    if (result) {
+      totalAlarms.value = result.totalElements || result.length
+    } else {
+      totalAlarms.value = 0
+    }
   } catch (error) {
     console.error('Failed to load alarms:', error)
     ElMessage.error('加载告警列表失败')
@@ -379,6 +383,12 @@ const handleSelectionChange = (selection: AlarmEvent[]) => {
 // 处理页码变化
 const handleCurrentChange = (page: number) => {
   currentPage.value = page
+  loadAlarms()
+}
+
+// 处理筛选器变化
+const handleFilterChange = () => {
+  currentPage.value = 1
   loadAlarms()
 }
 
